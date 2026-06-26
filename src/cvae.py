@@ -79,7 +79,7 @@ class CVAE(nn.Module):
     def __init__(
         self,
         profile_dim: int = 24,
-        condition_dim: int = 10,
+        condition_dim: int = 21,
         hidden_dim: int = 128,
         latent_dim: int = 8,
     ):
@@ -112,19 +112,26 @@ class CVAE(nn.Module):
         x_reconstructed = self.decoder(z, c)
         return x_reconstructed, mu, log_var
 
-    def generate(self, c: torch.Tensor, n_samples: int = 1) -> torch.Tensor:
+    def generate(self, c: torch.Tensor, n_samples: int | None = None) -> torch.Tensor:
         """
         Generate demand profiles by sampling from the prior N(0, I).
 
         Args:
             c: Conditioning vector of shape (n_samples, condition_dim).
-            n_samples: Number of profiles to generate.
+            n_samples: Number of profiles to generate. If c has one row, it
+                can be repeated to generate multiple samples for one condition.
 
         Returns:
             Generated profiles of shape (n_samples, profile_dim).
         """
         self.eval()
         with torch.no_grad():
+            if n_samples is None:
+                n_samples = c.shape[0]
+            if c.shape[0] == 1 and n_samples > 1:
+                c = c.repeat(n_samples, 1)
+            elif c.shape[0] != n_samples:
+                raise ValueError("c debe tener una fila o n_samples filas.")
             z = torch.randn(n_samples, self.latent_dim, device=next(self.parameters()).device)
             return self.decoder(z, c)
 

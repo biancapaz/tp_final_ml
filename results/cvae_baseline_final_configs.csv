@@ -1,0 +1,4 @@
+profile_dim,hidden_dim,latent_dim,batch_size,n_epochs,learning_rate,beta,beta_warmup_epochs,patience,min_delta,weight_decay,seed,condition_dim,condition_encoding,best_epoch,stopped_epoch,best_val_total
+24,128,8,64,300,0.001,0.01,50,35,1e-05,1e-05,42,21,c_full,178,213,0.012550245349605879
+24,128,8,64,300,0.001,0.01,50,35,1e-05,1e-05,123,21,c_full,153,188,0.012707805105795464
+24,128,8,64,300,0.001,0.01,50,35,1e-05,1e-05,2024,21,c_full,186,221,0.012291731933752695
