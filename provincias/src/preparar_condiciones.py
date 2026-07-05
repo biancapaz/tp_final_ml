@@ -20,7 +20,7 @@ CLIMATE_FEATURES = [
 ]
 
 SOCIOECONOMIC_FEATURES = [
-    'poblacion', 'pbi_per_capita', 'participacion_industrial', 'superficie_km2'
+    'poblacion','pbg_per_capita','participacion_industrial','superficie_km2'
 ]
 
 CALENDAR_FEATURES = ['mes', 'dia_semana', 'es_feriado']
@@ -156,7 +156,7 @@ c = c.sort_values('fecha').reset_index(drop=True)
 # ─────────────────────────────────────────────
 # 6. VALIDAR ALINEACIÓN CON X
 # ─────────────────────────────────────────────
-x_fechas = pd.read_csv('../data/processed/x_perfiles_diarios.csv', usecols=['fecha'], parse_dates=['fecha'])
+x_fechas = pd.read_csv('../data/processed/x_perfiles_diarios_provincias.csv', usecols=['fecha'], parse_dates=['fecha'])
 fechas_comunes = set(c['fecha']).intersection(set(x_fechas['fecha']))
 print(f'\nFechas en c: {len(c)}')
 print(f'Fechas en x: {len(x_fechas)}')
