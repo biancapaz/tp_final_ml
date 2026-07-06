@@ -1,0 +1,4 @@
+{
+  "selected_beta": 0.01,
+  "selection_rule": "lowest validation total loss"
+}

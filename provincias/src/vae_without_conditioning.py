@@ -16,6 +16,7 @@ from model_utils import (
     PROFILE_DIM,
     compute_reconstruction_loss,
     evaluate_generated_scenarios,
+    evaluate_overall_generated_scenarios,
     get_default_results_dir,
     get_default_splits_dir,
     load_calendar,
@@ -328,6 +329,142 @@ def latent_kl_by_dimension(mu: np.ndarray, logvar: np.ndarray) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def beta_label(beta: float) -> str:
+    """Return a filesystem-friendly beta label."""
+    return str(beta).replace(".", "p")
+
+
+def evaluate_vae_loss_on_array(
+    model: VAE,
+    X: np.ndarray,
+    beta: float,
+    device: torch.device,
+    batch_size: int,
+) -> tuple[float, float, float]:
+    """Evaluate VAE total, reconstruction and KL losses on an array."""
+    loader = make_loader(X, batch_size=batch_size, shuffle=False)
+    return run_vae_epoch(model, loader, device, beta, optimizer=None)
+
+
+def run_vae_beta_ablation(
+    args: argparse.Namespace,
+    X: dict[str, np.ndarray],
+    x_scaler: Any,
+    device: torch.device,
+) -> pd.DataFrame:
+    """Train and evaluate unconditional VAE models for a beta grid."""
+    beta_grid = getattr(args, "beta_grid", [0.01, 0.05, 0.1, 1.0])
+    rows = []
+    ablation_dir = args.output_dir / "beta_ablation_models"
+    ablation_dir.mkdir(parents=True, exist_ok=True)
+
+    for beta in beta_grid:
+        set_random_seed(args.seed)
+        label = beta_label(float(beta))
+        model_path = ablation_dir / f"vae_beta_{label}.pt"
+        history_path = ablation_dir / f"training_history_beta_{label}.csv"
+
+        if model_path.exists():
+            model, _ = load_vae_checkpoint(model_path, device)
+            print(f"Loaded beta={beta} model from: {model_path}")
+        else:
+            train_loader = make_loader(X["train"], args.batch_size, shuffle=True)
+            val_loader = make_loader(X["val"], args.batch_size, shuffle=False)
+            model = VAE(PROFILE_DIM, args.hidden_dim, args.latent_dim)
+            history = train_vae(
+                model=model,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                device=device,
+                epochs=args.epochs,
+                learning_rate=args.learning_rate,
+                weight_decay=args.weight_decay,
+                beta=float(beta),
+                beta_warmup_epochs=args.beta_warmup_epochs,
+                patience=args.patience,
+                min_delta=args.min_delta,
+            )
+            pd.DataFrame(history).to_csv(history_path, index=False)
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "input_dim": PROFILE_DIM,
+                    "hidden_dim": args.hidden_dim,
+                    "latent_dim": args.latent_dim,
+                    "beta": float(beta),
+                    "best_epoch": int(history["best_epoch"]),
+                    "best_val_loss": float(history["best_val_loss"]),
+                },
+                model_path,
+            )
+
+        val_total, val_reconstruction, val_kl = evaluate_vae_loss_on_array(
+            model=model,
+            X=X["val"],
+            beta=float(beta),
+            device=device,
+            batch_size=args.batch_size,
+        )
+        test_total, test_reconstruction, test_kl = evaluate_vae_loss_on_array(
+            model=model,
+            X=X["test"],
+            beta=float(beta),
+            device=device,
+            batch_size=args.batch_size,
+        )
+        generated_test = generate_vae_scenarios(
+            model=model,
+            n_days=len(X["test"]),
+            n_scenarios=args.n_scenarios,
+            seed=args.seed,
+            device=device,
+            batch_size=args.batch_size,
+        )
+        overall_metrics = evaluate_overall_generated_scenarios(
+            real_scaled=X["test"],
+            generated_scaled=generated_test,
+            scaler=x_scaler,
+            seed=args.seed,
+            mmd_max_samples=args.mmd_max_samples,
+        )
+        mu_test, logvar_test = encode_distribution_array(
+            model=model,
+            X=X["test"],
+            device=device,
+            batch_size=args.batch_size,
+        )
+        latent_kl = latent_kl_by_dimension(mu_test, logvar_test)
+        overall = overall_metrics.iloc[0]
+        rows.append(
+            {
+                "beta": float(beta),
+                "val_reconstruction_loss": float(val_reconstruction),
+                "val_kl_loss": float(val_kl),
+                "val_total_loss": float(val_total),
+                "test_reconstruction_loss": float(test_reconstruction),
+                "test_kl_loss": float(test_kl),
+                "test_total_loss": float(test_total),
+                "test_coverage": float(overall["coverage_p5_p95"]),
+                "test_sharpness": float(overall["sharpness_p5_p95_mwh"]),
+                "test_rmse_mean_profile": float(overall["mean_profile_rmse_mwh"]),
+                "test_mmd": float(overall["mmd_rbf"]),
+                "mean_kl": float(latent_kl["kl"].mean()),
+                "active_latent_dimensions": int((latent_kl["kl"] > 0.01).sum()),
+            }
+        )
+
+    ablation = pd.DataFrame(rows).sort_values("val_total_loss", ascending=True)
+    ablation.to_csv(args.output_dir / "vae_beta_ablation.csv", index=False)
+    save_json(
+        {
+            "selection_rule": "lowest validation total loss",
+            "selected_beta": float(ablation.iloc[0]["beta"]),
+        },
+        args.output_dir / "vae_beta_ablation_selection.json",
+    )
+    return ablation
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the unconditional VAE."""
     parser = argparse.ArgumentParser(description="Train VAE without conditioning from split files.")
@@ -343,12 +480,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--beta", type=float, default=0.01)
+    parser.add_argument("--beta-grid", type=float, nargs="+", default=[0.01, 0.05, 0.1, 1.0])
     parser.add_argument("--beta-warmup-epochs", type=int, default=30)
     parser.add_argument("--patience", type=int, default=25)
     parser.add_argument("--min-delta", type=float, default=1e-5)
     parser.add_argument("--n-scenarios", type=int, default=500)
     parser.add_argument("--mmd-max-samples", type=int, default=1000)
     parser.add_argument("--plot-days", type=int, default=4)
+    parser.add_argument("--run-beta-ablation", action="store_true")
     return parser.parse_args()
 
 
@@ -520,6 +659,8 @@ def run_vae_without_conditioning(args: argparse.Namespace) -> dict[str, Path]:
         """,
         args.output_dir / "interpretation.txt",
     )
+    if getattr(args, "run_beta_ablation", False):
+        run_vae_beta_ablation(args=args, X=X, x_scaler=x_scaler, device=device)
     print(f"Saved unconditional VAE outputs to: {args.output_dir}")
     return {
         "output_dir": args.output_dir,

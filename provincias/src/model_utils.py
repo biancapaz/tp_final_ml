@@ -232,7 +232,7 @@ def hour_columns() -> list[str]:
 
 
 def fallback_level_counts(fallback_usage: pd.DataFrame) -> dict[str, int]:
-    """Count how many test days used each hierarchical fallback level."""
+    """Count how many days used each hierarchical fallback level."""
     counts = fallback_usage["fallback_level"].value_counts().to_dict()
     return {
         "n_full": int(counts.get("full", 0)),

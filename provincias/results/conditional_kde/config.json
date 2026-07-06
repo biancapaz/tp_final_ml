@@ -8,11 +8,12 @@
     2.0
   ],
   "batch_size": 64,
-  "best_bandwidth": 1.5,
+  "best_bandwidth": 2.0,
   "best_min_samples": 20,
   "data_source": "/Users/victoriapersico/Desktop/Ingenieria/Tercer An\u0303o/Machine Learning/TP_final/tp_final_ml/provincias/data/splits",
   "device": "cpu",
   "epochs": 200,
+  "final_selection_criterion": "validation_generative",
   "hidden_dim": 256,
   "latent_dim": 16,
   "learning_rate": 0.001,
