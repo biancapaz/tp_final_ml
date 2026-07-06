@@ -1,0 +1,16 @@
+{
+  "batch_size": 64,
+  "beta": 0.01,
+  "beta_warmup_epochs": 30,
+  "data_source": "/Users/victoriapersico/Desktop/Ingenieria/Tercer An\u0303o/Machine Learning/TP_final/tp_final_ml/provincias/data/splits",
+  "device": "cpu",
+  "epochs": 200,
+  "hidden_dim": 256,
+  "latent_dim": 16,
+  "learning_rate": 0.001,
+  "model": "vae_without_conditioning",
+  "n_scenarios": 500,
+  "patience": 25,
+  "seed": 42,
+  "weight_decay": 1e-05
+}

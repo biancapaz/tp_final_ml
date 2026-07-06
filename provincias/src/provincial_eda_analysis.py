@@ -457,3 +457,169 @@ def plot_pca_scores_by_month(
     colorbar.set_label("Mes")
     ax.grid(alpha=0.25)
     return ax
+
+
+def assign_temporal_split(date: pd.Timestamp) -> str:
+    """Assign a date to the temporal split defined for the provincial pipeline."""
+    year = pd.Timestamp(date).year
+    if year in [2019, 2021, 2022, 2023]:
+        return "train"
+    if year == 2024:
+        return "validation"
+    if year in [2025, 2026]:
+        return "test"
+    return "excluded"
+
+
+def build_split_diagnostics(
+    hourly_demand: pd.DataFrame,
+    climate_daily: pd.DataFrame,
+    pca_result: dict[str, object],
+) -> pd.DataFrame:
+    """Build daily diagnostics used to compare train, validation and test splits."""
+    daily_total = hourly_demand.assign(
+        demanda_total_mwh=hourly_demand[PROVINCE_ORDER].sum(axis=1)
+    ).groupby("fecha")["demanda_total_mwh"].sum().reset_index()
+    climate = climate_daily.copy()
+    climate["fecha"] = pd.to_datetime(climate["fecha"])
+    daily_temperature = climate.groupby("fecha")["temp_media"].mean().rename("temp_media_pais")
+    shares = compute_hourly_shares(hourly_demand)
+    daily_shares = shares.groupby("fecha")[["buenos_aires", "cordoba", "santa_fe"]].mean()
+    daily_shares["share_top3_pct"] = daily_shares.sum(axis=1)
+    diagnostics = daily_total.merge(daily_temperature, on="fecha", how="left")
+    diagnostics = diagnostics.merge(daily_shares.reset_index(), on="fecha", how="left")
+    diagnostics = diagnostics.merge(pca_result["scores"][["fecha", "PC1", "PC2"]], on="fecha", how="left")
+    diagnostics["split"] = diagnostics["fecha"].apply(assign_temporal_split)
+    return diagnostics.loc[diagnostics["split"] != "excluded"].copy()
+
+
+def plot_split_diagnostics(diagnostics: pd.DataFrame) -> plt.Figure:
+    """Plot compact boxplots comparing core variables across temporal splits."""
+    split_order = ["train", "validation", "test"]
+    specs = [
+        ("demanda_total_mwh", "Demanda diaria total", "MWh/dia"),
+        ("temp_media_pais", "Temperatura media provincial", "C"),
+        ("PC1", "PCA PC1", "Score"),
+        ("PC2", "PCA PC2", "Score"),
+        ("buenos_aires", "Share Buenos Aires", "%"),
+        ("share_top3_pct", "Share Buenos Aires + Cordoba + Santa Fe", "%"),
+    ]
+    fig, axes = plt.subplots(2, 3, figsize=(13, 7))
+    for ax, (column, title, ylabel) in zip(axes.flatten(), specs):
+        values = [
+            diagnostics.loc[diagnostics["split"] == split, column].dropna()
+            for split in split_order
+        ]
+        ax.boxplot(values, labels=split_order, showfliers=False)
+        ax.set_title(title)
+        ax.set_ylabel(ylabel)
+        ax.grid(axis="y", alpha=0.25)
+    fig.suptitle("Comparacion de distribuciones por split temporal", y=1.02)
+    fig.tight_layout()
+    return fig
+
+
+def summarize_train_group_counts(hourly_demand: pd.DataFrame) -> pd.DataFrame:
+    """Count train days available for each historical mean and KDE condition group."""
+    daily = hourly_demand[["fecha", "mes", "dia_semana", "es_feriado"]].drop_duplicates()
+    daily["split"] = daily["fecha"].apply(assign_temporal_split)
+    train = daily.loc[daily["split"] == "train"]
+    full_index = pd.MultiIndex.from_product(
+        [range(1, 13), range(7), [0, 1]],
+        names=["mes", "dia_semana", "es_feriado"],
+    )
+    counts = train.groupby(["mes", "dia_semana", "es_feriado"]).size()
+    result = counts.reindex(full_index, fill_value=0).rename("dias_train").reset_index()
+    return result.sort_values("dias_train")
+
+
+def summarize_group_count_risk(group_counts: pd.DataFrame) -> pd.DataFrame:
+    """Summarize how many condition groups have low train support."""
+    thresholds = [0, 1, 2, 3, 5, 10]
+    rows = []
+    for threshold in thresholds:
+        rows.append(
+            {
+                "umbral": f"<= {threshold}",
+                "grupos": int((group_counts["dias_train"] <= threshold).sum()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def plot_train_group_count_histogram(group_counts: pd.DataFrame, ax: Axes | None = None) -> Axes:
+    """Plot the distribution of train sample counts per condition group."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8, 4))
+    ax.hist(group_counts["dias_train"], bins=range(0, int(group_counts["dias_train"].max()) + 2), color="#4c78a8")
+    ax.set_title("Dias de train por grupo (mes, dia_semana, es_feriado)")
+    ax.set_xlabel("Dias disponibles en train")
+    ax.set_ylabel("Cantidad de grupos")
+    ax.grid(axis="y", alpha=0.25)
+    return ax
+
+
+def plot_pca_loading_heatmap(
+    pca_result: dict[str, object],
+    component: int,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot PCA loadings as a province-by-hour heatmap for one component."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 8))
+    pca = pca_result["pca"]
+    features = pca_result["features"]
+    loadings = pd.Series(pca.components_[component - 1], index=features)
+    matrix = pd.DataFrame(
+        [
+            [loadings[f"{province}_{hour:02d}"] for hour in HOURS]
+            for province in PROVINCE_ORDER
+        ],
+        index=PROVINCE_ORDER,
+        columns=HOURS,
+    )
+    limit = float(np.abs(matrix.to_numpy()).max())
+    image = ax.imshow(matrix, aspect="auto", cmap="coolwarm", vmin=-limit, vmax=limit)
+    ax.set_title(f"Loadings PCA — PC{component}")
+    ax.set_xlabel("Hora")
+    ax.set_ylabel("Provincia")
+    ax.set_xticks(range(len(HOURS)))
+    ax.set_xticklabels(HOURS)
+    ax.set_yticks(range(len(PROVINCE_ORDER)))
+    ax.set_yticklabels(PROVINCE_ORDER)
+    colorbar = ax.figure.colorbar(image, ax=ax)
+    colorbar.set_label("Loading")
+    return ax
+
+
+def plot_calendar_profiles_selected(
+    hourly_demand: pd.DataFrame,
+    provinces: list[str],
+) -> plt.Figure:
+    """Plot normalized calendar profiles for selected provinces."""
+    data = hourly_demand.copy()
+    data["tipo_semana"] = np.where(data["dia_semana"].isin([5, 6]), "fin_de_semana", "habil")
+    fig, axes = plt.subplots(len(provinces), 2, figsize=(11, 2.4 * len(provinces)), sharex=True)
+    for row, province in enumerate(provinces):
+        for label, group in data.groupby("tipo_semana"):
+            profile = group.groupby("hora")[province].mean()
+            axes[row, 0].plot(profile.index, profile / profile.mean(), label=label)
+        for label, group in data.groupby("es_feriado"):
+            profile = group.groupby("hora")[province].mean()
+            axes[row, 1].plot(
+                profile.index,
+                profile / profile.mean(),
+                label="feriado" if label == 1 else "no_feriado",
+            )
+        axes[row, 0].set_ylabel(province)
+        axes[row, 0].grid(alpha=0.2)
+        axes[row, 1].grid(alpha=0.2)
+    axes[0, 0].set_title("Habil vs fin de semana")
+    axes[0, 1].set_title("Feriado vs no feriado")
+    axes[-1, 0].set_xlabel("Hora")
+    axes[-1, 1].set_xlabel("Hora")
+    axes[0, 0].legend(fontsize=8)
+    axes[0, 1].legend(fontsize=8)
+    fig.suptitle("Efecto calendario en perfiles provinciales seleccionados", y=1.01)
+    fig.tight_layout()
+    return fig
