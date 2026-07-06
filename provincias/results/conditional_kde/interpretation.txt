@@ -1,0 +1,3 @@
+This baseline trains an autoencoder on X_train and fits hierarchical KDEs
+        on the latent vectors using only discrete calendar groups. It does not use
+        weather or socioeconomic conditions.

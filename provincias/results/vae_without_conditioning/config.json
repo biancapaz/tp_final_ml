@@ -3,7 +3,7 @@
   "beta": 0.01,
   "beta_warmup_epochs": 30,
   "data_source": "/Users/victoriapersico/Desktop/Ingenieria/Tercer An\u0303o/Machine Learning/TP_final/tp_final_ml/provincias/data/splits",
-  "device": "mps",
+  "device": "cpu",
   "epochs": 200,
   "hidden_dim": 256,
   "latent_dim": 16,

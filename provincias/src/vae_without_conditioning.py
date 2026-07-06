@@ -18,10 +18,12 @@ from model_utils import (
     evaluate_generated_scenarios,
     get_default_results_dir,
     get_default_splits_dir,
+    load_calendar,
     load_dates,
     load_x_scaler,
     load_x_splits,
     print_split_checks,
+    save_extended_metrics,
     save_generation_plots,
     save_interpretation,
     save_json,
@@ -269,11 +271,69 @@ def generate_vae_scenarios(
     return generated.reshape(n_days, n_scenarios, PROFILE_DIM)
 
 
+def load_vae_checkpoint(path: Path, device: torch.device) -> tuple[VAE, dict[str, Any]]:
+    """Load a saved VAE checkpoint."""
+    checkpoint = torch.load(path, map_location=device)
+    model = VAE(
+        input_dim=int(checkpoint["input_dim"]),
+        hidden_dim=int(checkpoint["hidden_dim"]),
+        latent_dim=int(checkpoint["latent_dim"]),
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.to(device)
+    model.eval()
+    return model, checkpoint
+
+
+def encode_distribution_array(
+    model: VAE,
+    X: np.ndarray,
+    device: torch.device,
+    batch_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Encode a full array into latent means and log-variances."""
+    model.eval()
+    loader = make_loader(X, batch_size=batch_size, shuffle=False)
+    mu_batches = []
+    logvar_batches = []
+
+    with torch.no_grad():
+        for (x_batch,) in loader:
+            x_batch = x_batch.to(device)
+            mu, logvar = model.encode(x_batch)
+            mu_batches.append(mu.cpu().numpy())
+            logvar_batches.append(logvar.cpu().numpy())
+
+    return np.vstack(mu_batches).astype(np.float32), np.vstack(logvar_batches).astype(np.float32)
+
+
+def latent_kl_by_dimension(mu: np.ndarray, logvar: np.ndarray) -> pd.DataFrame:
+    """Compute latent posterior diagnostics by dimension."""
+    std = np.exp(0.5 * logvar)
+    kl = -0.5 * np.mean(1.0 + logvar - mu**2 - np.exp(logvar), axis=0)
+    rows = []
+
+    for index in range(mu.shape[1]):
+        rows.append(
+            {
+                "latent_dim": int(index + 1),
+                "mu_mean": float(mu[:, index].mean()),
+                "mu_std": float(mu[:, index].std()),
+                "logvar_mean": float(logvar[:, index].mean()),
+                "std_mean": float(std[:, index].mean()),
+                "kl": float(kl[index]),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the unconditional VAE."""
     parser = argparse.ArgumentParser(description="Train VAE without conditioning from split files.")
     parser.add_argument("--splits-dir", type=Path, default=get_default_splits_dir())
     parser.add_argument("--output-dir", type=Path, default=get_default_results_dir("vae_without_conditioning"))
+    parser.add_argument("--pretrained-vae-path", type=Path, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--latent-dim", type=int, default=16)
@@ -309,25 +369,46 @@ def run_vae_without_conditioning(args: argparse.Namespace) -> dict[str, Path]:
     validate_x_splits(X)
     print_split_checks(X)
 
+    calendar_test = load_calendar(args.splits_dir, "test")
     dates_test = load_dates(args.splits_dir, "test")
     x_scaler = load_x_scaler(args.splits_dir)
-    train_loader = make_loader(X["train"], args.batch_size, shuffle=True)
-    val_loader = make_loader(X["val"], args.batch_size, shuffle=False)
-    model = VAE(PROFILE_DIM, args.hidden_dim, args.latent_dim)
-
-    history = train_vae(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        device=device,
-        epochs=args.epochs,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        beta=args.beta,
-        beta_warmup_epochs=args.beta_warmup_epochs,
-        patience=args.patience,
-        min_delta=args.min_delta,
-    )
+    pretrained_path = getattr(args, "pretrained_vae_path", None)
+    history_output_path = args.output_dir / "training_history.csv"
+    history_source_path = None
+    if pretrained_path is not None and Path(pretrained_path).exists():
+        model, checkpoint = load_vae_checkpoint(Path(pretrained_path), device)
+        if history_output_path.exists() and len(pd.read_csv(history_output_path)) > 1:
+            history_source_path = history_output_path
+        history = {
+            "epoch": [int(checkpoint.get("best_epoch", 0))],
+            "beta": [float(checkpoint.get("beta", args.beta))],
+            "train_total": [np.nan],
+            "train_reconstruction": [np.nan],
+            "train_kl": [np.nan],
+            "val_total": [float(checkpoint.get("best_val_loss", np.nan))],
+            "val_reconstruction": [np.nan],
+            "val_kl": [np.nan],
+            "best_epoch": int(checkpoint.get("best_epoch", 0)),
+            "best_val_loss": float(checkpoint.get("best_val_loss", np.nan)),
+        }
+        print(f"Loaded pretrained VAE from: {pretrained_path}")
+    else:
+        train_loader = make_loader(X["train"], args.batch_size, shuffle=True)
+        val_loader = make_loader(X["val"], args.batch_size, shuffle=False)
+        model = VAE(PROFILE_DIM, args.hidden_dim, args.latent_dim)
+        history = train_vae(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            device=device,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            beta=args.beta,
+            beta_warmup_epochs=args.beta_warmup_epochs,
+            patience=args.patience,
+            min_delta=args.min_delta,
+        )
 
     generated_test = generate_vae_scenarios(
         model=model,
@@ -352,23 +433,57 @@ def run_vae_without_conditioning(args: argparse.Namespace) -> dict[str, Path]:
             {"split": split_name, "reconstruction_mse_scaled": compute_reconstruction_loss(reconstructed, values)}
         )
 
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "input_dim": PROFILE_DIM,
-            "hidden_dim": args.hidden_dim,
-            "latent_dim": args.latent_dim,
-            "beta": args.beta,
-            "best_epoch": history["best_epoch"],
-            "best_val_loss": history["best_val_loss"],
-        },
-        args.output_dir / "vae_best.pt",
+    mu_test, logvar_test = encode_distribution_array(
+        model=model,
+        X=X["test"],
+        device=device,
+        batch_size=args.batch_size,
     )
+    latent_kl = latent_kl_by_dimension(mu_test, logvar_test)
+    best_epoch_value = history["best_epoch"]
+    best_val_loss_value = history["best_val_loss"]
+    if isinstance(best_epoch_value, list):
+        best_epoch_value = best_epoch_value[-1]
+    if isinstance(best_val_loss_value, list):
+        best_val_loss_value = best_val_loss_value[-1]
 
-    pd.DataFrame(history).to_csv(args.output_dir / "training_history.csv", index=False)
+    checkpoint_output_path = args.output_dir / "vae_best.pt"
+    same_checkpoint = (
+        pretrained_path is not None
+        and Path(pretrained_path).exists()
+        and Path(pretrained_path).resolve() == checkpoint_output_path.resolve()
+    )
+    if not same_checkpoint:
+        torch.save(
+            {
+                "model_state_dict": model.state_dict(),
+                "input_dim": PROFILE_DIM,
+                "hidden_dim": args.hidden_dim,
+                "latent_dim": args.latent_dim,
+                "beta": args.beta,
+                "best_epoch": int(best_epoch_value),
+                "best_val_loss": float(best_val_loss_value),
+            },
+            checkpoint_output_path,
+        )
+
+    if history_source_path is not None:
+        pd.read_csv(history_source_path).to_csv(history_output_path, index=False)
+    else:
+        pd.DataFrame(history).to_csv(history_output_path, index=False)
     pd.DataFrame(reconstruction_rows).to_csv(args.output_dir / "reconstruction_metrics.csv", index=False)
     overall_metrics.to_csv(args.output_dir / "metrics_overall.csv", index=False)
     province_metrics.to_csv(args.output_dir / "metrics_by_province.csv", index=False)
+    latent_kl.to_csv(args.output_dir / "latent_kl_by_dimension.csv", index=False)
+    save_extended_metrics(
+        real_scaled=X["test"],
+        generated_scaled=generated_test,
+        scaler=x_scaler,
+        calendar_test=calendar_test,
+        output_dir=args.output_dir,
+        seed=args.seed,
+        mmd_max_samples=args.mmd_max_samples,
+    )
     save_generation_plots(
         real_scaled=X["test"],
         generated_scaled=generated_test,

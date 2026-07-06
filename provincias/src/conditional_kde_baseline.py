@@ -16,6 +16,8 @@ from model_utils import (
     PROFILE_DIM,
     compute_reconstruction_loss,
     evaluate_generated_scenarios,
+    evaluate_overall_generated_scenarios,
+    fallback_level_counts,
     get_default_results_dir,
     get_default_splits_dir,
     load_calendar,
@@ -23,6 +25,7 @@ from model_utils import (
     load_x_scaler,
     load_x_splits,
     print_split_checks,
+    save_extended_metrics,
     save_generation_plots,
     save_interpretation,
     save_json,
@@ -302,6 +305,140 @@ def select_bandwidth(
     return best_bandwidth, results
 
 
+def evaluate_kde_configuration(
+    model: Autoencoder,
+    Z_train: np.ndarray,
+    Z_val: np.ndarray,
+    X_test: np.ndarray,
+    calendar_train: pd.DataFrame,
+    calendar_val: pd.DataFrame,
+    calendar_test: pd.DataFrame,
+    x_scaler: Any,
+    min_samples: int,
+    bandwidth: float,
+    n_scenarios: int,
+    seed: int,
+    device: torch.device,
+    batch_size: int,
+    mmd_max_samples: int,
+) -> tuple[dict[str, float | int], np.ndarray, pd.DataFrame]:
+    """Evaluate one hierarchical KDE configuration on validation and test."""
+    kdes = fit_kdes(Z_train, calendar_train, bandwidth, min_samples)
+    log_likelihoods = []
+
+    for index, row in calendar_val.iterrows():
+        kde, _, _ = select_kde(row, kdes)
+        log_likelihoods.append(kde.score_samples(Z_val[index : index + 1])[0])
+
+    generated_test, fallback_usage = generate_kde_scenarios(
+        model=model,
+        kdes=kdes,
+        calendar_test=calendar_test,
+        n_scenarios=n_scenarios,
+        seed=seed,
+        device=device,
+        batch_size=batch_size,
+    )
+    overall_metrics = evaluate_overall_generated_scenarios(
+        real_scaled=X_test,
+        generated_scaled=generated_test,
+        scaler=x_scaler,
+        seed=seed,
+        mmd_max_samples=mmd_max_samples,
+    )
+    overall = overall_metrics.iloc[0]
+    row = {
+        "min_samples": int(min_samples),
+        "bandwidth": float(bandwidth),
+        "val_log_likelihood": float(np.mean(log_likelihoods)),
+        "test_coverage": float(overall["coverage_p5_p95"]),
+        "test_sharpness": float(overall["sharpness_p5_p95_mwh"]),
+        "test_rmse_mean_profile": float(overall["mean_profile_rmse_mwh"]),
+        "test_mmd": float(overall["mmd_rbf"]),
+    }
+    row.update(fallback_level_counts(fallback_usage))
+    return row, generated_test, fallback_usage
+
+
+def run_kde_sensitivity_analysis(
+    model: Autoencoder,
+    Z_train: np.ndarray,
+    Z_val: np.ndarray,
+    X_test: np.ndarray,
+    calendar_train: pd.DataFrame,
+    calendar_val: pd.DataFrame,
+    calendar_test: pd.DataFrame,
+    x_scaler: Any,
+    min_samples_grid: list[int],
+    bandwidth_grid: list[float],
+    n_scenarios: int,
+    seed: int,
+    device: torch.device,
+    batch_size: int,
+    mmd_max_samples: int,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Run min_samples and bandwidth sensitivity without using test for selection."""
+    rows = []
+    best_row = None
+    best_generated = None
+    best_fallback_usage = None
+
+    for min_samples in min_samples_grid:
+        for bandwidth in bandwidth_grid:
+            row, generated_test, fallback_usage = evaluate_kde_configuration(
+                model=model,
+                Z_train=Z_train,
+                Z_val=Z_val,
+                X_test=X_test,
+                calendar_train=calendar_train,
+                calendar_val=calendar_val,
+                calendar_test=calendar_test,
+                x_scaler=x_scaler,
+                min_samples=min_samples,
+                bandwidth=bandwidth,
+                n_scenarios=n_scenarios,
+                seed=seed,
+                device=device,
+                batch_size=batch_size,
+                mmd_max_samples=mmd_max_samples,
+            )
+            rows.append(row)
+            print(
+                f"min_samples={min_samples} | bandwidth={bandwidth:.2f} | "
+                f"val_ll={row['val_log_likelihood']:.4f} | "
+                f"coverage={row['test_coverage']:.3f}"
+            )
+            if best_row is None or row["val_log_likelihood"] > best_row["val_log_likelihood"]:
+                best_row = row
+                best_generated = generated_test
+                best_fallback_usage = fallback_usage
+
+    sensitivity = pd.DataFrame(rows).sort_values("val_log_likelihood", ascending=False)
+    if best_row is None or best_generated is None or best_fallback_usage is None:
+        raise RuntimeError("KDE sensitivity analysis did not evaluate any configuration")
+
+    best_result = {
+        "row": best_row,
+        "generated_test": best_generated,
+        "fallback_usage": best_fallback_usage,
+    }
+    return sensitivity, best_result
+
+
+def load_autoencoder_checkpoint(path: Path, device: torch.device) -> tuple[Autoencoder, dict[str, Any]]:
+    """Load a saved autoencoder checkpoint."""
+    checkpoint = torch.load(path, map_location=device)
+    model = Autoencoder(
+        input_dim=int(checkpoint["input_dim"]),
+        hidden_dim=int(checkpoint["hidden_dim"]),
+        latent_dim=int(checkpoint["latent_dim"]),
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.to(device)
+    model.eval()
+    return model, checkpoint
+
+
 def generate_kde_scenarios(
     model: Autoencoder,
     kdes: dict[str, Any],
@@ -340,7 +477,8 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the conditional KDE baseline."""
     parser = argparse.ArgumentParser(description="Train conditional KDE baseline from split files.")
     parser.add_argument("--splits-dir", type=Path, default=get_default_splits_dir())
-    parser.add_argument("--output-dir", type=Path, default=get_default_results_dir("conditional_kde_baseline"))
+    parser.add_argument("--output-dir", type=Path, default=get_default_results_dir("conditional_kde"))
+    parser.add_argument("--pretrained-autoencoder-path", type=Path, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--latent-dim", type=int, default=16)
@@ -352,11 +490,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=25)
     parser.add_argument("--min-delta", type=float, default=1e-5)
     parser.add_argument("--min-samples", type=int, default=20)
+    parser.add_argument("--min-samples-grid", type=int, nargs="+", default=[3, 5, 10, 15, 20])
     parser.add_argument(
         "--bandwidths",
         type=float,
         nargs="+",
-        default=[0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0],
+        default=[0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
     )
     parser.add_argument("--n-scenarios", type=int, default=500)
     parser.add_argument("--mmd-max-samples", type=int, default=1000)
@@ -387,43 +526,66 @@ def run_conditional_kde_baseline(args: argparse.Namespace) -> dict[str, Path]:
     dates_test = load_dates(args.splits_dir, "test")
     x_scaler = load_x_scaler(args.splits_dir)
 
-    train_loader = make_loader(X["train"], args.batch_size, shuffle=True)
-    val_loader = make_loader(X["val"], args.batch_size, shuffle=False)
-    model = Autoencoder(PROFILE_DIM, args.hidden_dim, args.latent_dim)
-
-    history = train_autoencoder(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        device=device,
-        epochs=args.epochs,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        patience=args.patience,
-        min_delta=args.min_delta,
-    )
+    pretrained_path = getattr(args, "pretrained_autoencoder_path", None)
+    history_source_path = None
+    if pretrained_path is not None and Path(pretrained_path).exists():
+        model, checkpoint = load_autoencoder_checkpoint(Path(pretrained_path), device)
+        candidate_history_path = Path(pretrained_path).parent / "autoencoder_history.csv"
+        if candidate_history_path.exists():
+            history_source_path = candidate_history_path
+        history = {
+            "epoch": [int(checkpoint.get("best_epoch", 0))],
+            "train_loss": [np.nan],
+            "val_loss": [float(checkpoint.get("best_val_loss", np.nan))],
+            "best_epoch": int(checkpoint.get("best_epoch", 0)),
+            "best_val_loss": float(checkpoint.get("best_val_loss", np.nan)),
+        }
+        print(f"Loaded pretrained autoencoder from: {pretrained_path}")
+    else:
+        train_loader = make_loader(X["train"], args.batch_size, shuffle=True)
+        val_loader = make_loader(X["val"], args.batch_size, shuffle=False)
+        model = Autoencoder(PROFILE_DIM, args.hidden_dim, args.latent_dim)
+        history = train_autoencoder(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            device=device,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            patience=args.patience,
+            min_delta=args.min_delta,
+        )
 
     Z_train = encode_array(model, X["train"], device, args.batch_size)
     Z_val = encode_array(model, X["val"], device, args.batch_size)
 
-    best_bandwidth, bandwidth_results = select_bandwidth(
+    min_samples_grid = getattr(args, "min_samples_grid", [3, 5, 10, 15, 20])
+    sensitivity_results, best_result = run_kde_sensitivity_analysis(
+        model=model,
         Z_train=Z_train,
         Z_val=Z_val,
+        X_test=X["test"],
         calendar_train=calendar_train,
         calendar_val=calendar_val,
-        bandwidths=args.bandwidths,
-        min_samples=args.min_samples,
-    )
-
-    kdes = fit_kdes(Z_train, calendar_train, best_bandwidth, args.min_samples)
-    generated_test, fallback_usage = generate_kde_scenarios(
-        model=model,
-        kdes=kdes,
         calendar_test=calendar_test,
+        x_scaler=x_scaler,
+        min_samples_grid=min_samples_grid,
+        bandwidth_grid=args.bandwidths,
         n_scenarios=args.n_scenarios,
         seed=args.seed,
         device=device,
         batch_size=args.batch_size,
+        mmd_max_samples=args.mmd_max_samples,
+    )
+    best_row = best_result["row"]
+    generated_test = best_result["generated_test"]
+    fallback_usage = best_result["fallback_usage"]
+    best_min_samples = int(best_row["min_samples"])
+    best_bandwidth = float(best_row["bandwidth"])
+    print(
+        f"Selected min_samples={best_min_samples} and bandwidth={best_bandwidth:.2f} "
+        f"by validation log-likelihood"
     )
 
     overall_metrics, province_metrics = evaluate_generated_scenarios(
@@ -441,25 +603,48 @@ def run_conditional_kde_baseline(args: argparse.Namespace) -> dict[str, Path]:
             {"split": split_name, "reconstruction_mse_scaled": compute_reconstruction_loss(reconstructed, values)}
         )
 
+    best_epoch_value = history["best_epoch"]
+    best_val_loss_value = history["best_val_loss"]
+    if isinstance(best_epoch_value, list):
+        best_epoch_value = best_epoch_value[-1]
+    if isinstance(best_val_loss_value, list):
+        best_val_loss_value = best_val_loss_value[-1]
+
     torch.save(
         {
             "model_state_dict": model.state_dict(),
             "input_dim": PROFILE_DIM,
             "hidden_dim": args.hidden_dim,
             "latent_dim": args.latent_dim,
-            "best_epoch": history["best_epoch"],
-            "best_val_loss": history["best_val_loss"],
+            "best_epoch": int(best_epoch_value),
+            "best_val_loss": float(best_val_loss_value),
         },
         args.output_dir / "autoencoder_best.pt",
     )
 
-    pd.DataFrame(history).to_csv(args.output_dir / "autoencoder_history.csv", index=False)
+    if history_source_path is not None:
+        pd.read_csv(history_source_path).to_csv(args.output_dir / "autoencoder_history.csv", index=False)
+    else:
+        pd.DataFrame(history).to_csv(args.output_dir / "autoencoder_history.csv", index=False)
     pd.DataFrame(reconstruction_rows).to_csv(args.output_dir / "reconstruction_metrics.csv", index=False)
-    bandwidth_results.to_csv(args.output_dir / "bandwidth_validation.csv", index=False)
+    sensitivity_results.to_csv(
+        args.output_dir / "kde_min_samples_bandwidth_sensitivity.csv",
+        index=False,
+    )
+    sensitivity_results.to_csv(args.output_dir / "bandwidth_validation.csv", index=False)
     build_calendar_group_counts(calendar_train).to_csv(args.output_dir / "calendar_group_counts.csv", index=False)
     fallback_usage.to_csv(args.output_dir / "test_fallback_usage.csv", index=False)
     overall_metrics.to_csv(args.output_dir / "metrics_overall.csv", index=False)
     province_metrics.to_csv(args.output_dir / "metrics_by_province.csv", index=False)
+    save_extended_metrics(
+        real_scaled=X["test"],
+        generated_scaled=generated_test,
+        scaler=x_scaler,
+        calendar_test=calendar_test,
+        output_dir=args.output_dir,
+        seed=args.seed,
+        mmd_max_samples=args.mmd_max_samples,
+    )
     save_generation_plots(
         real_scaled=X["test"],
         generated_scaled=generated_test,
@@ -479,8 +664,9 @@ def run_conditional_kde_baseline(args: argparse.Namespace) -> dict[str, Path]:
             "learning_rate": args.learning_rate,
             "weight_decay": args.weight_decay,
             "patience": args.patience,
-            "min_samples": args.min_samples,
+            "min_samples_grid": min_samples_grid,
             "bandwidths": args.bandwidths,
+            "best_min_samples": best_min_samples,
             "best_bandwidth": best_bandwidth,
             "n_scenarios": args.n_scenarios,
             "seed": args.seed,
