@@ -251,6 +251,51 @@ def per_province_metrics_b(
     return pd.DataFrame(rows).sort_values("mae_mwh", ascending=False).reset_index(drop=True)
 
 
+def posterior_prior_gap(
+    model: CVAE,
+    X: np.ndarray,
+    C: np.ndarray,
+    x_scaler,
+    device: str = "cpu",
+) -> dict:
+    """
+    Diagnose conditioning collapse by comparing two ways of decoding.
+
+    Reconstructs each sample twice: once with z = encoder mu (the true
+    posterior, which has seen the real x) and once with z sampled from the
+    prior N(0,1) (what generation actually uses, since it only has c).
+
+    A small gap means the decoder relies on c to reconstruct, as intended.
+    A large gap means the decoder learned to depend on information leaked
+    through z, so real scenario generation (prior-only) will be unreliable
+    even though training reconstruction looks accurate.
+    """
+    model.eval()
+    dev = torch.device(device)
+    model = model.to(dev)
+
+    with torch.no_grad():
+        x_t = torch.FloatTensor(X).to(dev)
+        c_t = torch.FloatTensor(C).to(dev)
+        mu, _ = model.encoder(x_t, c_t)
+        recon_posterior = model.decoder(mu, c_t).cpu().numpy()
+        z_prior = torch.randn(len(c_t), model.latent_dim, device=dev)
+        recon_prior = model.decoder(z_prior, c_t).cpu().numpy()
+
+    real_mwh      = x_scaler.inverse_transform(X)
+    posterior_mwh = x_scaler.inverse_transform(recon_posterior)
+    prior_mwh     = x_scaler.inverse_transform(recon_prior)
+
+    mae_posterior = float(np.abs(real_mwh - posterior_mwh).mean())
+    mae_prior     = float(np.abs(real_mwh - prior_mwh).mean())
+
+    return {
+        "mae_posterior": mae_posterior,
+        "mae_prior":     mae_prior,
+        "gap_ratio":     mae_prior / mae_posterior if mae_posterior > 0 else float("inf"),
+    }
+
+
 def full_evaluation(
     model: CVAE,
     X_real: np.ndarray,

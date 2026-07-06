@@ -43,6 +43,38 @@ CLIMATE_FEATURES = [
 CALENDAR_FEATURES  = ["mes", "dia_semana", "es_feriado"]
 SOCIOECO_FEATURES = ["poblacion", "pbg_per_capita", "participacion_industrial", "superficie_km2"]
 
+# poblacion and superficie_km2 are right-skewed across provinces (Buenos Aires
+# is a ~50x outlier), so they are log-transformed before scaling — otherwise
+# a single StandardScaler column compresses the other 21 provinces together.
+SOCIOECO_LOG_FEATURES = ["poblacion", "superficie_km2"]
+
+
+class LogStandardScaler:
+    """StandardScaler applied on log1p(x); inverse_transform undoes both steps.
+
+    Used for demand values that span very different orders of magnitude
+    across provinces (Buenos Aires vs. small provinces). log1p compresses
+    that multiplicative gap before standardizing, so no single province
+    dominates the fitted mean/std.
+    """
+
+    def __init__(self) -> None:
+        self._scaler = StandardScaler()
+
+    def fit(self, values: np.ndarray) -> "LogStandardScaler":
+        """Fit the underlying scaler on log1p(values)."""
+        self._scaler.fit(np.log1p(values))
+        return self
+
+    def transform(self, values: np.ndarray) -> np.ndarray:
+        """Apply log1p then the fitted StandardScaler."""
+        return self._scaler.transform(np.log1p(values))
+
+    def inverse_transform(self, values: np.ndarray) -> np.ndarray:
+        """Undo the StandardScaler then log1p, returning original units."""
+        return np.expm1(self._scaler.inverse_transform(values))
+
+
 def build_x_long(x_wide: pd.DataFrame) -> pd.DataFrame:
     """
     Convert x from wide format (1 row per day, 528 cols) to long format
@@ -90,6 +122,11 @@ def build_c_long(
     # Join socioeconomic indicators (same for each province across all days)
     c = c.merge(indicadores[["provincia"] + SOCIOECO_FEATURES], on="provincia", how="left")
 
+    # Log-transform right-skewed indicators before they reach the scaler —
+    # see SOCIOECO_LOG_FEATURES for why.
+    for feature in SOCIOECO_LOG_FEATURES:
+        c[feature] = np.log1p(c[feature])
+
     c = c.sort_values(["fecha", "provincia"]).reset_index(drop=True)
     return c
 
@@ -109,19 +146,22 @@ def temporal_split_long(
     return train, val, test
 
 
-def fit_x_scaler_b(x_train: pd.DataFrame) -> StandardScaler:
+def fit_x_scaler_b(x_train: pd.DataFrame) -> LogStandardScaler:
     """
-    Fit StandardScaler on training demand profiles (Architecture B).
-    Each row is a 24-hour profile of one province.
-    Fitted exclusively on train.
+    Fit a LogStandardScaler on training demand profiles (Architecture B).
+
+    Rows mix all 22 provinces in the same 24 hour columns, and province
+    scale varies ~50x (Buenos Aires vs. small provinces). log1p is applied
+    before standardizing so the fitted mean/std are not dominated by the
+    largest province. Fitted exclusively on train.
     """
     hora_cols = [f"hora_{h:02d}" for h in range(1, 25)]
-    scaler = StandardScaler()
+    scaler = LogStandardScaler()
     scaler.fit(x_train[hora_cols].values)
     return scaler
 
 
-def transform_x_b(x: pd.DataFrame, scaler: StandardScaler) -> np.ndarray:
+def transform_x_b(x: pd.DataFrame, scaler: LogStandardScaler) -> np.ndarray:
     """Apply pre-fitted scaler to x in long format. Returns array (n_samples, 24)."""
     hora_cols = [f"hora_{h:02d}" for h in range(1, 25)]
     return scaler.transform(x[hora_cols].values)
