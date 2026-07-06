@@ -1,7 +1,11 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.axes import Axes
-import geopandas as gpd
+
+try:
+    import geopandas as gpd
+except ModuleNotFoundError:
+    gpd = None
 
 PROVINCE_ORDER = [
     "buenos_aires", "catamarca", "chaco", "chubut", "cordoba",
@@ -186,6 +190,11 @@ def plot_argentina_map(
     Requires geopandas. Install with: pip install geopandas fiona pyproj shapely
     Shapefile is downloaded automatically from GADM (no file needed in repo).
     """
+    if gpd is None:
+        raise ModuleNotFoundError(
+            "geopandas is required only for plot_argentina_map. "
+            "Install geopandas or skip the map plot."
+        )
     
     PROVINCE_LABELS = {
         'buenos_aires': 'Buenos Aires',
