@@ -1,0 +1,21 @@
+{
+  "model": "cvae_architecture_b",
+  "val": {
+    "mae_global": 174.65,
+    "rmse_global": 501.98,
+    "mape_energy": 26.0214,
+    "coverage": 86.55,
+    "sharpness": 651.1799926757812,
+    "diversity_ratio": 0.1267,
+    "mmd": 0.004
+  },
+  "test": {
+    "mae_global": 182.12,
+    "rmse_global": 537.54,
+    "mape_energy": 25.419,
+    "coverage": 85.5,
+    "sharpness": 651.22998046875,
+    "diversity_ratio": 0.1249,
+    "mmd": 0.004
+  }
+}
