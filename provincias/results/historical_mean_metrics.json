@@ -1,0 +1,13 @@
+{
+  "model": "historical_mean",
+  "val": {
+    "mae_global": 77.22,
+    "rmse_global": 226.49,
+    "mape_energy": 7.596
+  },
+  "test": {
+    "mae_global": 76.62,
+    "rmse_global": 226.22,
+    "mape_energy": 7.297
+  }
+}
