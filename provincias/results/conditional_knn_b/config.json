@@ -1,0 +1,31 @@
+{
+  "bandwidth_x_grid": [
+    0.0,
+    0.02,
+    0.05,
+    0.1
+  ],
+  "k_grid": [
+    10,
+    25,
+    50,
+    100
+  ],
+  "model": "conditional_knn_baseline_b",
+  "n_scenarios_test": 500,
+  "n_scenarios_validation": 200,
+  "processed_dir": "/Users/victoriapersico/Desktop/Ingenieria/Tercer An\u0303o/Machine Learning/TP_final/tp_final_ml/provincias/data/processed",
+  "seed": 42,
+  "selected_bandwidth_x": 0.0,
+  "selected_k": 25,
+  "selected_tau_scale": 1.0,
+  "selection_criterion": "coverage closest to 90, then lower sharpness, lower mean-profile RMSE and lower MMD on validation",
+  "splits_dir": "/Users/victoriapersico/Desktop/Ingenieria/Tercer An\u0303o/Machine Learning/TP_final/tp_final_ml/provincias/data/splits",
+  "tau_scale_grid": [
+    0.25,
+    0.5,
+    1.0,
+    2.0
+  ],
+  "uses_province_label_as_input": false
+}
