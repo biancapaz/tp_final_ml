@@ -636,8 +636,9 @@ def plot_real_reconstructed_prior_profiles(
     prior_scaled: np.ndarray,
     scaler: Any,
     dates: np.ndarray,
+    output_path: Path | None = None,
 ) -> None:
-    """Plot real, reconstructed and prior-generated system profiles."""
+    """Plot real, reconstructed and prior-generated system profiles, optionally saving them."""
     real = inverse_transform_profiles(real_scaled, scaler)
     reconstructed = inverse_transform_profiles(reconstructed_scaled, scaler)
     prior = inverse_transform_profiles(prior_scaled, scaler)
@@ -665,7 +666,12 @@ def plot_real_reconstructed_prior_profiles(
 
     fig.suptitle("Real profiles, reconstructions and prior samples")
     fig.tight_layout()
-    show_or_close_figure(fig)
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=150)
+        plt.close(fig)
+    else:
+        show_or_close_figure(fig)
 
 
 def save_json(data: dict[str, Any], path: Path) -> None:

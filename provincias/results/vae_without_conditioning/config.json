@@ -1,6 +1,6 @@
 {
   "batch_size": 64,
-  "beta": 0.01,
+  "beta": 0.1,
   "beta_warmup_epochs": 30,
   "data_source": "/Users/victoriapersico/Desktop/Ingenieria/Tercer An\u0303o/Machine Learning/TP_final/tp_final_ml/provincias/data/splits",
   "device": "cpu",
