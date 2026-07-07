@@ -1,0 +1,47 @@
+[
+  {
+    "noise_std": 0.0,
+    "mae_global": 63.65,
+    "rmse_global": 175.77,
+    "coverage": 85.61,
+    "sharpness": 268.9599914550781,
+    "mmd": 0.004124,
+    "diversity_ratio": 0.6046
+  },
+  {
+    "noise_std": 0.05,
+    "mae_global": 63.66,
+    "rmse_global": 175.27,
+    "coverage": 85.57,
+    "sharpness": 269.2799987792969,
+    "mmd": 0.004124,
+    "diversity_ratio": 0.6053
+  },
+  {
+    "noise_std": 0.1,
+    "mae_global": 63.79,
+    "rmse_global": 175.67,
+    "coverage": 85.55,
+    "sharpness": 269.260009765625,
+    "mmd": 0.004124,
+    "diversity_ratio": 0.6052
+  },
+  {
+    "noise_std": 0.2,
+    "mae_global": 64.22,
+    "rmse_global": 176.91,
+    "coverage": 85.18,
+    "sharpness": 267.9200134277344,
+    "mmd": 0.004124,
+    "diversity_ratio": 0.6021
+  },
+  {
+    "noise_std": 0.3,
+    "mae_global": 64.86,
+    "rmse_global": 178.61,
+    "coverage": 84.69,
+    "sharpness": 266.1000061035156,
+    "mmd": 0.004124,
+    "diversity_ratio": 0.5982
+  }
+]

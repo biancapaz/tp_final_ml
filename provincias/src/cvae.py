@@ -113,19 +113,24 @@ class CVAE(nn.Module):
         self,
         c: torch.Tensor,
         n_samples: int = 1,
+        temperature: float = 1.0,
     ) -> torch.Tensor:
         """
-        Generate demand profiles by sampling z ~ N(0,1) and decoding.
+        Generate demand profiles by sampling z ~ N(0, temperature^2 I) and decoding.
 
-        c:         condition vector, shape (batch, c_dim) or (c_dim,).
-        n_samples: number of samples to generate per condition.
-        Returns:   tensor of shape (batch * n_samples, x_dim).
+        c:           condition vector, shape (batch, c_dim) or (c_dim,).
+        n_samples:   number of samples to generate per condition.
+        temperature: scales the sampled z (1.0 = standard N(0,1) prior). Values
+                     above 1.0 widen generated scenarios; below 1.0 narrow them.
+                     Useful to calibrate coverage at inference time without
+                     retraining — select on validation only, never on test.
+        Returns:     tensor of shape (batch * n_samples, x_dim).
         """
         self.eval()
         if c.dim() == 1:
             c = c.unsqueeze(0)
         c_expanded = c.repeat_interleave(n_samples, dim=0)
-        z = torch.randn(len(c_expanded), self.latent_dim, device=c.device)
+        z = torch.randn(len(c_expanded), self.latent_dim, device=c.device) * temperature
         return self.decoder(z, c_expanded)
 
 

@@ -42,10 +42,13 @@ def generate_scenarios(
     n_scenarios: int = 500,
     batch_size: int = 64,
     device: str = "cpu",
+    temperature: float = 1.0,
 ) -> np.ndarray:
     """
     Generate n_scenarios demand profiles for each condition in C.
 
+    temperature: scales the sampled z (see CVAE.generate). Select it on
+                 validation only; report test with the chosen value fixed.
     Returns array of shape (len(C), n_scenarios, x_dim).
     """
     model.eval()
@@ -55,7 +58,7 @@ def generate_scenarios(
     all_scenarios = []
     for i in range(0, len(C), batch_size):
         c_batch = torch.FloatTensor(C[i:i+batch_size]).to(dev)
-        samples = model.generate(c_batch, n_samples=n_scenarios)
+        samples = model.generate(c_batch, n_samples=n_scenarios, temperature=temperature)
         # samples shape: (batch * n_scenarios, x_dim)
         samples = samples.cpu().numpy().reshape(len(c_batch), n_scenarios, -1)
         all_scenarios.append(samples)
@@ -204,6 +207,96 @@ def per_province_metrics_a(
     return pd.DataFrame(rows).sort_values("mae_mwh", ascending=False).reset_index(drop=True)
 
 
+def metrics_by_month_a(
+    X_real: np.ndarray,
+    X_scenarios: np.ndarray,
+    dates: np.ndarray,
+    x_scaler,
+) -> pd.DataFrame:
+    """
+    Compute MAE, coverage and sharpness per calendar month for Architecture A.
+
+    X_real:      (n_days, 528)
+    X_scenarios: (n_days, n_scenarios, 528)
+    dates:       (n_days,) array of dates matching X_real rows.
+    """
+    real_mwh = x_scaler.inverse_transform(X_real)
+    n_days, n_scen, _ = X_scenarios.shape
+    scen_mwh = np.stack([
+        x_scaler.inverse_transform(X_scenarios[:, s, :])
+        for s in range(n_scen)
+    ], axis=1)
+
+    median_pred = np.median(scen_mwh, axis=1)
+    p5  = np.percentile(scen_mwh, 5,  axis=1)
+    p95 = np.percentile(scen_mwh, 95, axis=1)
+
+    months = pd.to_datetime(dates).month
+    rows = []
+    for mes in sorted(pd.unique(months)):
+        mask = months == mes
+        mae = np.abs(real_mwh[mask] - median_pred[mask]).mean()
+        coverage = ((real_mwh[mask] >= p5[mask]) & (real_mwh[mask] <= p95[mask])).mean() * 100
+        sharpness = (p95[mask] - p5[mask]).mean()
+        rows.append({
+            "mes":       int(mes),
+            "n_dias":    int(mask.sum()),
+            "mae_mwh":   round(mae, 1),
+            "coverage":  round(coverage, 1),
+            "sharpness": round(sharpness, 1),
+        })
+    return pd.DataFrame(rows).sort_values("mes").reset_index(drop=True)
+
+
+def temperature_sweep(
+    model: CVAE,
+    X_val: np.ndarray,
+    C_val: np.ndarray,
+    x_scaler,
+    temperatures: list[float],
+    n_scenarios: int = 200,
+    device: str = "cpu",
+) -> pd.DataFrame:
+    """
+    Evaluate generative metrics on validation for each candidate temperature.
+
+    Used to calibrate the latent sampling temperature without retraining:
+    higher temperature widens generated bands (may raise coverage at the
+    cost of sharpness), lower temperature narrows them. Must only be run
+    on validation — never use test to pick a temperature.
+    """
+    rows = []
+    for temperature in temperatures:
+        scenarios = generate_scenarios(
+            model, C_val, n_scenarios=n_scenarios, device=device, temperature=temperature,
+        )
+        pm = point_metrics(X_val, scenarios, x_scaler)
+        gm = generative_metrics(X_val, scenarios, x_scaler)
+        rows.append({
+            "temperature":     temperature,
+            "mae_global":      round(pm["mae_global"], 2),
+            "rmse_global":     round(pm["rmse_global"], 2),
+            "coverage":        round(gm["coverage"], 2),
+            "sharpness":       round(gm["sharpness"], 2),
+            "diversity_ratio": round(gm["diversity_ratio"], 4),
+        })
+    return pd.DataFrame(rows)
+
+
+def select_temperature(sweep: pd.DataFrame, target_coverage: float = 90.0) -> float:
+    """
+    Select the temperature closest to the target coverage on validation.
+
+    Tie-break order: coverage_gap (closer to target_coverage) first, then
+    lower sharpness, then lower RMSE — the same generative criterion used
+    for the Conditional KDE baseline, for consistency across models.
+    """
+    ranked = sweep.assign(
+        coverage_gap=(sweep["coverage"] - target_coverage).abs()
+    ).sort_values(["coverage_gap", "sharpness", "rmse_global"])
+    return float(ranked.iloc[0]["temperature"])
+
+
 def per_province_metrics_b(
     X_real: np.ndarray,
     X_scenarios: np.ndarray,
@@ -305,15 +398,20 @@ def full_evaluation(
     device: str = "cpu",
     provinces: np.ndarray | None = None,
     architecture: str = "A",
+    temperature: float = 1.0,
 ) -> dict:
     """
     Run full evaluation: generate scenarios and compute all metrics.
 
     architecture: 'A' for system-level, 'B' for province-day.
     provinces: required for architecture B.
+    temperature: latent sampling temperature (see CVAE.generate). Only
+                 change this from 1.0 using a value selected on validation.
     """
     print(f"Generando {n_scenarios} escenarios para {len(X_real)} muestras...")
-    X_scenarios = generate_scenarios(model, C, n_scenarios=n_scenarios, device=device)
+    X_scenarios = generate_scenarios(
+        model, C, n_scenarios=n_scenarios, device=device, temperature=temperature,
+    )
 
     print("Calculando metricas...")
     metrics = {}

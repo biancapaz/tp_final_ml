@@ -1,21 +1,22 @@
 {
   "model": "cvae_architecture_a",
+  "temperature": 2.0,
   "val": {
-    "mae_global": 57.27,
-    "rmse_global": 158.71,
-    "mape_energy": 5.3793,
-    "coverage": 75.93,
-    "sharpness": 173.9199981689453,
-    "diversity_ratio": 0.4058,
+    "mae_global": 55.28,
+    "rmse_global": 150.58,
+    "mape_energy": 4.9167,
+    "coverage": 77.68,
+    "sharpness": 181.57000732421875,
+    "diversity_ratio": 0.4239,
     "mmd": 0.005464
   },
   "test": {
-    "mae_global": 57.1,
-    "rmse_global": 157.79,
-    "mape_energy": 5.2261,
-    "coverage": 73.58,
-    "sharpness": 176.4499969482422,
-    "diversity_ratio": 0.3973,
+    "mae_global": 63.52,
+    "rmse_global": 175.25,
+    "mape_energy": 6.1437,
+    "coverage": 85.69,
+    "sharpness": 268.94000244140625,
+    "diversity_ratio": 0.6047,
     "mmd": 0.004124
   }
 }

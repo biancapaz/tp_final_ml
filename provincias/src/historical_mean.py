@@ -251,3 +251,40 @@ def evaluation_summary(metrics: dict) -> pd.DataFrame:
         })
     df = pd.DataFrame(rows).sort_values("mae_mwh", ascending=False).reset_index(drop=True)
     return df
+
+
+def evaluate_by_month(
+    X_real: np.ndarray,
+    X_pred: np.ndarray,
+    dates: np.ndarray,
+    c_calendar: pd.DataFrame,
+    x_scaler,
+) -> pd.DataFrame:
+    """
+    Evaluate predictions grouped by calendar month.
+
+    Both X_real and X_pred must be in scaled space — this function
+    inverse-transforms them before computing metrics. Returns a DataFrame
+    with one row per month (1-12) and MAE, RMSE and energy MAPE.
+    """
+    X_real_mwh = x_scaler.inverse_transform(X_real)
+    X_pred_mwh = x_scaler.inverse_transform(X_pred)
+
+    dates_df = pd.DataFrame({"fecha": pd.to_datetime(dates)}).merge(
+        c_calendar[["fecha", "mes"]], on="fecha", how="left"
+    )
+
+    rows = []
+    for mes, idx in dates_df.groupby("mes").groups.items():
+        real_month = X_real_mwh[idx.values]
+        pred_month = X_pred_mwh[idx.values]
+        energy_real = real_month.sum(axis=1)
+        energy_pred = pred_month.sum(axis=1)
+        rows.append({
+            "mes":        int(mes),
+            "n_dias":     len(idx),
+            "mae_mwh":    round(np.abs(real_month - pred_month).mean(), 1),
+            "rmse_mwh":   round(np.sqrt(((real_month - pred_month) ** 2).mean()), 1),
+            "mape_pct":   round((np.abs(energy_real - energy_pred) / energy_real).mean() * 100, 2),
+        })
+    return pd.DataFrame(rows).sort_values("mes").reset_index(drop=True)

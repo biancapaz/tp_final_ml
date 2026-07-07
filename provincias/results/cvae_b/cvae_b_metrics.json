@@ -1,21 +1,21 @@
 {
   "model": "cvae_architecture_b",
   "val": {
-    "mae_global": 174.65,
-    "rmse_global": 501.98,
-    "mape_energy": 26.0214,
-    "coverage": 86.55,
-    "sharpness": 651.1799926757812,
-    "diversity_ratio": 0.1267,
+    "mae_global": 95.26,
+    "rmse_global": 272.13,
+    "mape_energy": 13.7645,
+    "coverage": 82.76,
+    "sharpness": 315.510009765625,
+    "diversity_ratio": 0.0606,
     "mmd": 0.004
   },
   "test": {
-    "mae_global": 182.12,
-    "rmse_global": 537.54,
-    "mape_energy": 25.419,
-    "coverage": 85.5,
-    "sharpness": 651.22998046875,
-    "diversity_ratio": 0.1249,
+    "mae_global": 108.05,
+    "rmse_global": 318.55,
+    "mape_energy": 14.3752,
+    "coverage": 81.64,
+    "sharpness": 309.19000244140625,
+    "diversity_ratio": 0.0586,
     "mmd": 0.004
   }
 }

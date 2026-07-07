@@ -165,7 +165,15 @@ def train(
                   f"train={tl:.4f} (r={tr:.4f} kl={tk:.4f}) | "
                   f"val={vl:.4f} (r={vr:.4f} kl={vk:.4f})")
 
-        # Early stopping
+        # Early stopping — skip comparisons during beta warm-up. val_loss
+        # includes beta * kl, and kl typically settles at the free_bits
+        # floor early on, so while beta is still ramping up, val_loss rises
+        # for purely mechanical reasons. Comparing checkpoints before beta
+        # reaches its final value would almost always crown an early,
+        # under-trained epoch as "best" regardless of actual model quality.
+        if epoch <= warmup_epochs:
+            continue
+
         if vl < best_val_loss:
             best_val_loss = vl
             patience_counter = 0
