@@ -305,14 +305,13 @@ def select_bandwidth(
     return best_bandwidth, results
 
 
-def evaluate_kde_configuration(
+def evaluate_kde_validation_configuration(
     model: Autoencoder,
     Z_train: np.ndarray,
     Z_val: np.ndarray,
-    X_test: np.ndarray,
+    X_val: np.ndarray,
     calendar_train: pd.DataFrame,
     calendar_val: pd.DataFrame,
-    calendar_test: pd.DataFrame,
     x_scaler: Any,
     min_samples: int,
     bandwidth: float,
@@ -321,8 +320,8 @@ def evaluate_kde_configuration(
     device: torch.device,
     batch_size: int,
     mmd_max_samples: int,
-) -> tuple[dict[str, float | int], np.ndarray, pd.DataFrame]:
-    """Evaluate one hierarchical KDE configuration on validation and test."""
+) -> dict[str, float | int]:
+    """Evaluate one hierarchical KDE configuration only on validation."""
     kdes = fit_kdes(Z_train, calendar_train, bandwidth, min_samples)
     log_likelihoods = []
 
@@ -330,6 +329,131 @@ def evaluate_kde_configuration(
         kde, _, _ = select_kde(row, kdes)
         log_likelihoods.append(kde.score_samples(Z_val[index : index + 1])[0])
 
+    generated_val, fallback_usage = generate_kde_scenarios(
+        model=model,
+        kdes=kdes,
+        calendar_test=calendar_val,
+        n_scenarios=n_scenarios,
+        seed=seed,
+        device=device,
+        batch_size=batch_size,
+    )
+    overall_metrics = evaluate_overall_generated_scenarios(
+        real_scaled=X_val,
+        generated_scaled=generated_val,
+        scaler=x_scaler,
+        seed=seed,
+        mmd_max_samples=mmd_max_samples,
+    )
+    overall = overall_metrics.iloc[0]
+    row = {
+        "min_samples": int(min_samples),
+        "bandwidth": float(bandwidth),
+        "val_log_likelihood": float(np.mean(log_likelihoods)),
+        "val_coverage": float(overall["coverage_p5_p95"]),
+        "val_sharpness": float(overall["sharpness_p5_p95_mwh"]),
+        "val_rmse_mean_profile": float(overall["mean_profile_rmse_mwh"]),
+        "val_mmd": float(overall["mmd_rbf"]),
+    }
+    row.update(fallback_level_counts(fallback_usage))
+    row["coverage_gap"] = abs(row["val_coverage"] - 0.90)
+    return row
+
+
+def run_kde_sensitivity_analysis(
+    model: Autoencoder,
+    Z_train: np.ndarray,
+    Z_val: np.ndarray,
+    X_val: np.ndarray,
+    calendar_train: pd.DataFrame,
+    calendar_val: pd.DataFrame,
+    x_scaler: Any,
+    min_samples_grid: list[int],
+    bandwidth_grid: list[float],
+    n_scenarios: int,
+    seed: int,
+    device: torch.device,
+    batch_size: int,
+    mmd_max_samples: int,
+) -> pd.DataFrame:
+    """Run min_samples and bandwidth sensitivity using validation only."""
+    rows = []
+
+    for min_samples in min_samples_grid:
+        for bandwidth in bandwidth_grid:
+            row = evaluate_kde_validation_configuration(
+                model=model,
+                Z_train=Z_train,
+                Z_val=Z_val,
+                X_val=X_val,
+                calendar_train=calendar_train,
+                calendar_val=calendar_val,
+                x_scaler=x_scaler,
+                min_samples=min_samples,
+                bandwidth=bandwidth,
+                n_scenarios=n_scenarios,
+                seed=seed,
+                device=device,
+                batch_size=batch_size,
+                mmd_max_samples=mmd_max_samples,
+            )
+            rows.append(row)
+            print(
+                f"min_samples={min_samples} | bandwidth={bandwidth:.2f} | "
+                f"val_ll={row['val_log_likelihood']:.4f} | "
+                f"val_coverage={row['val_coverage']:.3f}"
+            )
+
+    sensitivity = pd.DataFrame(rows).sort_values("val_log_likelihood", ascending=False)
+    if len(sensitivity) == 0:
+        raise RuntimeError("KDE sensitivity analysis did not evaluate any configuration")
+    return sensitivity
+
+
+def select_kde_validation_configurations(sensitivity: pd.DataFrame) -> pd.DataFrame:
+    """Select KDE configurations by validation log-likelihood and generative metrics."""
+    log_likelihood_row = (
+        sensitivity.sort_values("val_log_likelihood", ascending=False)
+        .iloc[0]
+        .to_dict()
+    )
+    generative_row = (
+        sensitivity.sort_values(
+            ["coverage_gap", "val_sharpness", "val_rmse_mean_profile"],
+            ascending=[True, True, True],
+        )
+        .iloc[0]
+        .to_dict()
+    )
+    rows = []
+    for criterion, row in [
+        ("validation_log_likelihood", log_likelihood_row),
+        ("validation_generative", generative_row),
+    ]:
+        selected = {"selection_criterion": criterion}
+        selected.update(row)
+        rows.append(selected)
+    return pd.DataFrame(rows)
+
+
+def evaluate_kde_selection_on_test(
+    model: Autoencoder,
+    Z_train: np.ndarray,
+    calendar_train: pd.DataFrame,
+    calendar_test: pd.DataFrame,
+    X_test: np.ndarray,
+    x_scaler: Any,
+    selection: pd.Series,
+    n_scenarios: int,
+    seed: int,
+    device: torch.device,
+    batch_size: int,
+    mmd_max_samples: int,
+) -> tuple[dict[str, float | int | str], np.ndarray, pd.DataFrame]:
+    """Evaluate one already-selected KDE configuration on test."""
+    min_samples = int(selection["min_samples"])
+    bandwidth = float(selection["bandwidth"])
+    kdes = fit_kdes(Z_train, calendar_train, bandwidth, min_samples)
     generated_test, fallback_usage = generate_kde_scenarios(
         model=model,
         kdes=kdes,
@@ -347,82 +471,26 @@ def evaluate_kde_configuration(
         mmd_max_samples=mmd_max_samples,
     )
     overall = overall_metrics.iloc[0]
+    fallback_counts = fallback_level_counts(fallback_usage)
     row = {
-        "min_samples": int(min_samples),
-        "bandwidth": float(bandwidth),
-        "val_log_likelihood": float(np.mean(log_likelihoods)),
+        "selection_criterion": str(selection["selection_criterion"]),
+        "min_samples": min_samples,
+        "bandwidth": bandwidth,
+        "val_log_likelihood": float(selection["val_log_likelihood"]),
+        "val_coverage": float(selection["val_coverage"]),
+        "val_sharpness": float(selection["val_sharpness"]),
+        "val_rmse_mean_profile": float(selection["val_rmse_mean_profile"]),
+        "val_mmd": float(selection["val_mmd"]),
         "test_coverage": float(overall["coverage_p5_p95"]),
         "test_sharpness": float(overall["sharpness_p5_p95_mwh"]),
         "test_rmse_mean_profile": float(overall["mean_profile_rmse_mwh"]),
         "test_mmd": float(overall["mmd_rbf"]),
+        "n_full_test": fallback_counts["n_full"],
+        "n_month_weekday_test": fallback_counts["n_month_weekday"],
+        "n_month_test": fallback_counts["n_month"],
+        "n_global_test": fallback_counts["n_global"],
     }
-    row.update(fallback_level_counts(fallback_usage))
     return row, generated_test, fallback_usage
-
-
-def run_kde_sensitivity_analysis(
-    model: Autoencoder,
-    Z_train: np.ndarray,
-    Z_val: np.ndarray,
-    X_test: np.ndarray,
-    calendar_train: pd.DataFrame,
-    calendar_val: pd.DataFrame,
-    calendar_test: pd.DataFrame,
-    x_scaler: Any,
-    min_samples_grid: list[int],
-    bandwidth_grid: list[float],
-    n_scenarios: int,
-    seed: int,
-    device: torch.device,
-    batch_size: int,
-    mmd_max_samples: int,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Run min_samples and bandwidth sensitivity without using test for selection."""
-    rows = []
-    best_row = None
-    best_generated = None
-    best_fallback_usage = None
-
-    for min_samples in min_samples_grid:
-        for bandwidth in bandwidth_grid:
-            row, generated_test, fallback_usage = evaluate_kde_configuration(
-                model=model,
-                Z_train=Z_train,
-                Z_val=Z_val,
-                X_test=X_test,
-                calendar_train=calendar_train,
-                calendar_val=calendar_val,
-                calendar_test=calendar_test,
-                x_scaler=x_scaler,
-                min_samples=min_samples,
-                bandwidth=bandwidth,
-                n_scenarios=n_scenarios,
-                seed=seed,
-                device=device,
-                batch_size=batch_size,
-                mmd_max_samples=mmd_max_samples,
-            )
-            rows.append(row)
-            print(
-                f"min_samples={min_samples} | bandwidth={bandwidth:.2f} | "
-                f"val_ll={row['val_log_likelihood']:.4f} | "
-                f"coverage={row['test_coverage']:.3f}"
-            )
-            if best_row is None or row["val_log_likelihood"] > best_row["val_log_likelihood"]:
-                best_row = row
-                best_generated = generated_test
-                best_fallback_usage = fallback_usage
-
-    sensitivity = pd.DataFrame(rows).sort_values("val_log_likelihood", ascending=False)
-    if best_row is None or best_generated is None or best_fallback_usage is None:
-        raise RuntimeError("KDE sensitivity analysis did not evaluate any configuration")
-
-    best_result = {
-        "row": best_row,
-        "generated_test": best_generated,
-        "fallback_usage": best_fallback_usage,
-    }
-    return sensitivity, best_result
 
 
 def load_autoencoder_checkpoint(path: Path, device: torch.device) -> tuple[Autoencoder, dict[str, Any]]:
@@ -500,6 +568,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-scenarios", type=int, default=500)
     parser.add_argument("--mmd-max-samples", type=int, default=1000)
     parser.add_argument("--plot-days", type=int, default=4)
+    parser.add_argument(
+        "--final-selection-criterion",
+        type=str,
+        choices=["validation_log_likelihood", "validation_generative"],
+        default="validation_generative",
+    )
     return parser.parse_args()
 
 
@@ -561,14 +635,13 @@ def run_conditional_kde_baseline(args: argparse.Namespace) -> dict[str, Path]:
     Z_val = encode_array(model, X["val"], device, args.batch_size)
 
     min_samples_grid = getattr(args, "min_samples_grid", [3, 5, 10, 15, 20])
-    sensitivity_results, best_result = run_kde_sensitivity_analysis(
+    sensitivity_results = run_kde_sensitivity_analysis(
         model=model,
         Z_train=Z_train,
         Z_val=Z_val,
-        X_test=X["test"],
+        X_val=X["val"],
         calendar_train=calendar_train,
         calendar_val=calendar_val,
-        calendar_test=calendar_test,
         x_scaler=x_scaler,
         min_samples_grid=min_samples_grid,
         bandwidth_grid=args.bandwidths,
@@ -578,14 +651,45 @@ def run_conditional_kde_baseline(args: argparse.Namespace) -> dict[str, Path]:
         batch_size=args.batch_size,
         mmd_max_samples=args.mmd_max_samples,
     )
-    best_row = best_result["row"]
-    generated_test = best_result["generated_test"]
-    fallback_usage = best_result["fallback_usage"]
-    best_min_samples = int(best_row["min_samples"])
-    best_bandwidth = float(best_row["bandwidth"])
+    selected_configs = select_kde_validation_configurations(sensitivity_results)
+    comparison_rows = []
+    generated_by_criterion: dict[str, np.ndarray] = {}
+    fallback_by_criterion: dict[str, pd.DataFrame] = {}
+
+    for _, selection in selected_configs.iterrows():
+        comparison_row, generated, fallback = evaluate_kde_selection_on_test(
+            model=model,
+            Z_train=Z_train,
+            calendar_train=calendar_train,
+            calendar_test=calendar_test,
+            X_test=X["test"],
+            x_scaler=x_scaler,
+            selection=selection,
+            n_scenarios=args.n_scenarios,
+            seed=args.seed,
+            device=device,
+            batch_size=args.batch_size,
+            mmd_max_samples=args.mmd_max_samples,
+        )
+        comparison_rows.append(comparison_row)
+        criterion = str(selection["selection_criterion"])
+        generated_by_criterion[criterion] = generated
+        fallback_by_criterion[criterion] = fallback
+
+    selection_comparison = pd.DataFrame(comparison_rows)
+    final_selection_criterion = getattr(args, "final_selection_criterion", "validation_generative")
+    if final_selection_criterion not in generated_by_criterion:
+        final_selection_criterion = "validation_log_likelihood"
+    final_row = selection_comparison[
+        selection_comparison["selection_criterion"] == final_selection_criterion
+    ].iloc[0]
+    generated_test = generated_by_criterion[final_selection_criterion]
+    fallback_usage = fallback_by_criterion[final_selection_criterion]
+    best_min_samples = int(final_row["min_samples"])
+    best_bandwidth = float(final_row["bandwidth"])
     print(
         f"Selected min_samples={best_min_samples} and bandwidth={best_bandwidth:.2f} "
-        f"by validation log-likelihood"
+        f"by {final_selection_criterion}"
     )
 
     overall_metrics, province_metrics = evaluate_generated_scenarios(
@@ -632,6 +736,7 @@ def run_conditional_kde_baseline(args: argparse.Namespace) -> dict[str, Path]:
         index=False,
     )
     sensitivity_results.to_csv(args.output_dir / "bandwidth_validation.csv", index=False)
+    selection_comparison.to_csv(args.output_dir / "kde_selection_comparison.csv", index=False)
     build_calendar_group_counts(calendar_train).to_csv(args.output_dir / "calendar_group_counts.csv", index=False)
     fallback_usage.to_csv(args.output_dir / "test_fallback_usage.csv", index=False)
     overall_metrics.to_csv(args.output_dir / "metrics_overall.csv", index=False)
@@ -668,6 +773,7 @@ def run_conditional_kde_baseline(args: argparse.Namespace) -> dict[str, Path]:
             "bandwidths": args.bandwidths,
             "best_min_samples": best_min_samples,
             "best_bandwidth": best_bandwidth,
+            "final_selection_criterion": final_selection_criterion,
             "n_scenarios": args.n_scenarios,
             "seed": args.seed,
             "device": str(device),

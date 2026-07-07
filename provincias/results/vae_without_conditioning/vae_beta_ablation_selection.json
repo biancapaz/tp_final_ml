@@ -1,0 +1,7 @@
+{
+  "selected_beta": 0.01,
+  "selection_rule": "lowest validation total loss",
+  "generative_selection_rule": "validation coverage closest to 0.90, then lower sharpness, lower mean profile RMSE and lower MMD",
+  "selected_beta_by_val_total_loss": 0.01,
+  "selected_beta_by_validation_generative": 0.1
+}

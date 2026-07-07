@@ -1,4 +1,4 @@
 This VAE learns the marginal distribution of daily profiles X only.
         Generated scenarios are sampled from the same unconditional prior for every
-        test day, so they are not adapted to weather, calendar variables or province
-        labels.
+        test day, so they are not adapted to weather, calendar variables,
+        socioeconomic indicators or province labels.
