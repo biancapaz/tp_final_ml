@@ -1,0 +1,2 @@
+model,k,tau_scale,bandwidth_x,n_scenarios_test,mae_global,rmse_global,mean_profile_rmse,mape_energy,coverage,sharpness,diversity_ratio,mmd
+conditional_knn_b,25,1.0,0.0,500,59.81257247924805,173.85690307617188,185.10986328125,8.967691659927368,84.23266166822869,319.6174900123699,0.06343506148782561,0.004024000000701082
