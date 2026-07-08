@@ -4,7 +4,7 @@ cvae.py
 Conditional Variational Autoencoder for electricity demand generation.
 Works for both architectures:
   Architecture A: x_dim=528, c_dim=267 (system-level, no socioeconomic)
-  Architecture B: x_dim=24,  c_dim=28  (province-day, with socioeconomic)
+  Architecture B: x_dim=24,  c_dim=19  (province-day, with socioeconomic)
 
 The latent space captures residual variability not explained by conditions.
 At generation time: sample z ~ N(0,1), decode with chosen c.

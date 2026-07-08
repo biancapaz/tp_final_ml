@@ -1,47 +1,47 @@
 [
   {
     "noise_std": 0.0,
-    "mae_global": 108.03,
-    "rmse_global": 318.57,
-    "coverage": 81.64,
-    "sharpness": 309.2900085449219,
-    "mmd": 0.004,
-    "diversity_ratio": 0.0587
-  },
-  {
-    "noise_std": 0.05,
-    "mae_global": 108.74,
-    "rmse_global": 321.03,
-    "coverage": 81.45,
-    "sharpness": 309.3900146484375,
-    "mmd": 0.004,
-    "diversity_ratio": 0.0587
-  },
-  {
-    "noise_std": 0.1,
-    "mae_global": 110.65,
-    "rmse_global": 327.58,
-    "coverage": 80.85,
-    "sharpness": 309.1300048828125,
+    "mae_global": 108.11,
+    "rmse_global": 319.03,
+    "coverage": 81.7,
+    "sharpness": 309.01,
     "mmd": 0.004,
     "diversity_ratio": 0.0586
   },
   {
-    "noise_std": 0.2,
-    "mae_global": 117.39,
-    "rmse_global": 349.29,
-    "coverage": 78.45,
-    "sharpness": 308.239990234375,
+    "noise_std": 0.05,
+    "mae_global": 108.47,
+    "rmse_global": 320.64,
+    "coverage": 81.45,
+    "sharpness": 309.49,
     "mmd": 0.004,
-    "diversity_ratio": 0.0584
+    "diversity_ratio": 0.0586
+  },
+  {
+    "noise_std": 0.1,
+    "mae_global": 110.32,
+    "rmse_global": 327.97,
+    "coverage": 80.78,
+    "sharpness": 309.47,
+    "mmd": 0.004,
+    "diversity_ratio": 0.0587
+  },
+  {
+    "noise_std": 0.2,
+    "mae_global": 117.37,
+    "rmse_global": 352.79,
+    "coverage": 78.55,
+    "sharpness": 309.11,
+    "mmd": 0.004,
+    "diversity_ratio": 0.0586
   },
   {
     "noise_std": 0.3,
-    "mae_global": 127.48,
-    "rmse_global": 381.85,
-    "coverage": 75.43,
-    "sharpness": 306.2099914550781,
+    "mae_global": 127.93,
+    "rmse_global": 388.94,
+    "coverage": 75.67,
+    "sharpness": 309.01,
     "mmd": 0.004,
-    "diversity_ratio": 0.0581
+    "diversity_ratio": 0.0586
   }
 ]
