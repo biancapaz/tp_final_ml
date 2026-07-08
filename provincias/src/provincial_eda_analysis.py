@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
+from matplotlib.ticker import PercentFormatter
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
@@ -26,6 +30,75 @@ SEASON_MAP = {
     6: "Invierno", 7: "Invierno", 8: "Invierno",
     9: "Primavera", 10: "Primavera", 11: "Primavera",
 }
+PROVINCE_DISPLAY_NAMES = {
+    "buenos_aires": "Buenos Aires",
+    "catamarca": "Catamarca",
+    "chaco": "Chaco",
+    "chubut": "Chubut",
+    "cordoba": "Córdoba",
+    "corrientes": "Corrientes",
+    "entre_rios": "Entre Ríos",
+    "formosa": "Formosa",
+    "jujuy": "Jujuy",
+    "la_pampa": "La Pampa",
+    "la_rioja": "La Rioja",
+    "mendoza": "Mendoza",
+    "misiones": "Misiones",
+    "neuquen": "Neuquén",
+    "rio_negro": "Río Negro",
+    "salta": "Salta",
+    "san_juan": "San Juan",
+    "san_luis": "San Luis",
+    "santa_cruz": "Santa Cruz",
+    "santa_fe": "Santa Fe",
+    "sgo_del_estero": "Santiago del Estero",
+    "tucuman": "Tucumán",
+}
+REPORT_PALETTE = [
+    "#0072B2",
+    "#D55E00",
+    "#009E73",
+    "#E69F00",
+    "#CC79A7",
+    "#56B4E9",
+]
+
+
+def format_province_name(province: str) -> str:
+    """Return a readable province name for report figures."""
+    return PROVINCE_DISPLAY_NAMES.get(province, province.replace("_", " ").title())
+
+
+def save_report_figure(fig: plt.Figure, output_dir: Path, filename: str) -> Path:
+    """Save a report figure with high-quality export defaults."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / filename
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    return output_path
+
+
+def get_daily_energy_by_province(hourly_demand: pd.DataFrame) -> pd.DataFrame:
+    """Build a long daily province-level energy table in MWh and GWh."""
+    daily = build_daily_province_energy(hourly_demand)
+    daily["energia_diaria_gwh"] = daily["energia_diaria_mwh"] / 1000
+    daily["provincia_nombre"] = daily["provincia"].map(format_province_name)
+    return daily
+
+
+def get_normalized_hourly_profile(
+    hourly_demand: pd.DataFrame,
+    provinces: list[str],
+) -> pd.DataFrame:
+    """Compute average hourly profiles normalized by each province's own daily mean."""
+    profiles = hourly_demand.groupby("hora")[provinces].mean().reindex(HOURS)
+    return profiles.div(profiles.mean(axis=0), axis=1)
+
+
+def _style_report_axis(ax: Axes, grid_axis: str = "y") -> None:
+    """Apply a compact report style to one axis."""
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis=grid_axis, alpha=0.22, linewidth=0.8)
 
 
 def compute_hourly_shares(hourly_demand: pd.DataFrame) -> pd.DataFrame:
@@ -228,6 +301,290 @@ def plot_daily_energy_boxplot(hourly_demand: pd.DataFrame, ax: Axes | None = Non
     ax.set_ylabel("Energia diaria (GWh)")
     ax.tick_params(axis="x", rotation=90)
     ax.grid(axis="y", alpha=0.25)
+    return ax
+
+
+def plot_report_daily_energy_boxplot(
+    hourly_demand: pd.DataFrame,
+    output_dir: Path | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot a report-ready daily energy boxplot by province."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12.5, 5.6))
+
+    daily = hourly_demand.groupby("fecha")[PROVINCE_ORDER].sum(min_count=1) / 1000
+    order = daily.median().sort_values(ascending=False).index.tolist()
+    labels = [format_province_name(province) for province in order]
+
+    ax.boxplot(
+        [daily[province].dropna() for province in order],
+        tick_labels=labels,
+        showfliers=False,
+        patch_artist=True,
+        widths=0.62,
+        boxprops={"facecolor": "#D8E4EF", "edgecolor": "#355C7D", "linewidth": 1.0},
+        medianprops={"color": "#1D3557", "linewidth": 1.4},
+        whiskerprops={"color": "#516A7D", "linewidth": 0.9},
+        capprops={"color": "#516A7D", "linewidth": 0.9},
+    )
+    ax.set_xlabel("Provincia")
+    ax.set_ylabel("Energía diaria (GWh)")
+    ax.tick_params(axis="x", rotation=75, labelsize=8)
+    for label in ax.get_xticklabels():
+        label.set_horizontalalignment("right")
+    _style_report_axis(ax, grid_axis="y")
+    ax.figure.tight_layout()
+
+    if output_dir is not None:
+        save_report_figure(ax.figure, output_dir, "eda_daily_energy_boxplot_by_province.png")
+    return ax
+
+
+def plot_report_daily_energy_boxplot_log(
+    hourly_demand: pd.DataFrame,
+    output_dir: Path | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot a horizontal log-scale daily energy boxplot by province."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=(9.5, 7.2))
+
+    daily = hourly_demand.groupby("fecha")[PROVINCE_ORDER].sum(min_count=1) / 1000
+    order = daily.median().sort_values(ascending=False).index.tolist()
+    labels = [format_province_name(province) for province in order]
+    values = []
+    for province in order:
+        province_values = daily[province].dropna()
+        values.append(province_values.loc[province_values > 0])
+
+    ax.boxplot(
+        values,
+        vert=False,
+        tick_labels=labels,
+        showfliers=False,
+        patch_artist=True,
+        widths=0.58,
+        boxprops={"facecolor": "#D8E4EF", "edgecolor": "#355C7D", "linewidth": 1.0},
+        medianprops={"color": "#1D3557", "linewidth": 1.4},
+        whiskerprops={"color": "#516A7D", "linewidth": 0.9},
+        capprops={"color": "#516A7D", "linewidth": 0.9},
+    )
+    ax.set_xscale("log")
+    tick_candidates = np.array([1, 2, 3, 5, 10, 20, 30, 50, 100, 200, 300])
+    x_min, x_max = ax.get_xlim()
+    ticks = tick_candidates[(tick_candidates >= x_min) & (tick_candidates <= x_max)]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([f"{tick:g}" for tick in ticks])
+    ax.set_xlabel("Energía diaria (GWh, escala log)")
+    ax.set_ylabel("Provincia")
+    ax.invert_yaxis()
+    ax.tick_params(axis="y", labelsize=9)
+    _style_report_axis(ax, grid_axis="x")
+    ax.figure.tight_layout()
+
+    if output_dir is not None:
+        save_report_figure(
+            ax.figure,
+            output_dir,
+            "eda_daily_energy_boxplot_by_province_log_horizontal.png",
+        )
+    return ax
+
+
+def plot_report_normalized_hourly_profiles(
+    hourly_demand: pd.DataFrame,
+    provinces: list[str] | None = None,
+    output_dir: Path | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot normalized hourly profiles for selected provinces in one axis."""
+    if provinces is None:
+        provinces = ["buenos_aires", "cordoba", "santa_fe", "formosa", "neuquen", "santa_cruz"]
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8.8, 4.8))
+
+    profiles = get_normalized_hourly_profile(hourly_demand, provinces)
+    for province, color in zip(provinces, REPORT_PALETTE):
+        ax.plot(
+            HOURS,
+            profiles[province],
+            color=color,
+            linewidth=2.1,
+            label=format_province_name(province),
+        )
+
+    ax.set_xlabel("Hora")
+    ax.set_ylabel("Demanda horaria / media diaria provincial")
+    ax.set_xlim(1, 24)
+    ax.set_xticks(HOURS)
+    ax.set_ylim(0.68, 1.32)
+    ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), frameon=False)
+    _style_report_axis(ax, grid_axis="both")
+    ax.figure.tight_layout()
+
+    if output_dir is not None:
+        save_report_figure(
+            ax.figure,
+            output_dir,
+            "eda_normalized_hourly_profiles_selected_provinces.png",
+        )
+    return ax
+
+
+def _compute_temperature_demand_table(
+    hourly_demand: pd.DataFrame,
+    climate_daily: pd.DataFrame,
+    provinces: list[str],
+) -> pd.DataFrame:
+    """Build normalized daily energy and temperature data for selected provinces."""
+    daily = get_daily_energy_by_province(hourly_demand)
+    climate = climate_daily.copy()
+    climate["fecha"] = pd.to_datetime(climate["fecha"])
+    merged = daily.merge(
+        climate[["fecha", "provincia", "temp_media"]],
+        on=["fecha", "provincia"],
+        how="inner",
+    )
+    merged = merged.loc[merged["provincia"].isin(provinces)].copy()
+    mean_energy = merged.groupby("provincia")["energia_diaria_mwh"].transform("mean")
+    merged["energia_diaria_normalizada"] = merged["energia_diaria_mwh"] / mean_energy
+    return merged
+
+
+def _add_binned_mean_line(
+    ax: Axes,
+    data: pd.DataFrame,
+    color: str,
+    bins: int = 18,
+) -> None:
+    """Add a smooth binned-mean line to a temperature-demand scatter plot."""
+    clean = data[["temp_media", "energia_diaria_normalizada"]].dropna()
+    if clean["temp_media"].nunique() < 3:
+        return
+
+    edges = np.linspace(clean["temp_media"].min(), clean["temp_media"].max(), bins + 1)
+    edges = np.unique(edges)
+    if len(edges) < 3:
+        return
+
+    binned = (
+        clean.assign(temp_bin=pd.cut(clean["temp_media"], bins=edges, include_lowest=True))
+        .groupby("temp_bin", observed=True)
+        .agg(
+            temp_media=("temp_media", "mean"),
+            energia_diaria_normalizada=("energia_diaria_normalizada", "mean"),
+            observaciones=("energia_diaria_normalizada", "size"),
+        )
+        .query("observaciones >= 5")
+    )
+    if len(binned) < 2:
+        return
+
+    ax.plot(
+        binned["temp_media"],
+        binned["energia_diaria_normalizada"],
+        color=color,
+        linewidth=2.5,
+    )
+
+
+def plot_report_temperature_demand_scatter(
+    hourly_demand: pd.DataFrame,
+    climate_daily: pd.DataFrame,
+    provinces: list[str] | None = None,
+    output_dir: Path | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot normalized daily demand against daily mean temperature for selected provinces."""
+    if provinces is None:
+        provinces = ["formosa", "buenos_aires", "neuquen"]
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8.4, 5.2))
+
+    merged = _compute_temperature_demand_table(hourly_demand, climate_daily, provinces)
+    colors = REPORT_PALETTE[: len(provinces)]
+    legend_handles = []
+    for province, color in zip(provinces, colors):
+        data = merged.loc[merged["provincia"] == province]
+        ax.scatter(
+            data["temp_media"],
+            data["energia_diaria_normalizada"],
+            s=14,
+            alpha=0.18,
+            color=color,
+            edgecolors="none",
+        )
+        _add_binned_mean_line(ax, data, color=color)
+        legend_handles.append(
+            Line2D([0], [0], color=color, linewidth=3, label=format_province_name(province))
+        )
+
+    ax.axhline(1, color="#5F6F7E", linewidth=0.9, linestyle="--", alpha=0.65)
+    ax.set_xlabel("Temperatura media diaria (°C)")
+    ax.set_ylabel("Energía diaria / media provincial")
+    ax.legend(handles=legend_handles, frameon=False)
+    _style_report_axis(ax, grid_axis="both")
+    ax.figure.tight_layout()
+
+    if output_dir is not None:
+        save_report_figure(
+            ax.figure,
+            output_dir,
+            "eda_temperature_demand_scatter_selected_provinces.png",
+        )
+    return ax
+
+
+def _compute_weekday_sunday_difference(hourly_demand: pd.DataFrame) -> pd.DataFrame:
+    """Compute hourly weekday-minus-Sunday differences relative to mean daily energy."""
+    regular_weekday = (hourly_demand["dia_semana"].isin([0, 1, 2, 3, 4])) & (
+        hourly_demand["es_feriado"] == 0
+    )
+    sunday = hourly_demand["dia_semana"] == 6
+    weekday_profile = hourly_demand.loc[regular_weekday].groupby("hora")[PROVINCE_ORDER].mean()
+    sunday_profile = hourly_demand.loc[sunday].groupby("hora")[PROVINCE_ORDER].mean()
+    mean_daily_energy = hourly_demand.groupby("fecha")[PROVINCE_ORDER].sum(min_count=1).mean()
+    difference = (weekday_profile - sunday_profile).div(mean_daily_energy, axis=1).T
+    difference = difference.reindex(index=PROVINCE_ORDER, columns=HOURS)
+    order = difference.sum(axis=1).sort_values(ascending=False).index.tolist()
+    return difference.loc[order]
+
+
+def plot_report_weekday_sunday_difference_heatmap(
+    hourly_demand: pd.DataFrame,
+    output_dir: Path | None = None,
+    ax: Axes | None = None,
+) -> Axes:
+    """Plot weekday-minus-Sunday hourly profile differences by province."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10.8, 8.0))
+
+    difference = _compute_weekday_sunday_difference(hourly_demand)
+    limit = float(np.nanmax(np.abs(difference.to_numpy())))
+    if limit == 0 or np.isnan(limit):
+        limit = 1.0
+
+    image = ax.imshow(
+        difference,
+        aspect="auto",
+        cmap="RdBu_r",
+        vmin=-limit,
+        vmax=limit,
+    )
+    ax.set_xlabel("Hora")
+    ax.set_ylabel("Provincia")
+    ax.set_xticks(range(len(HOURS)))
+    ax.set_xticklabels(HOURS)
+    ax.set_yticks(range(len(difference.index)))
+    ax.set_yticklabels([format_province_name(province) for province in difference.index])
+    colorbar = ax.figure.colorbar(image, ax=ax, fraction=0.035, pad=0.025)
+    colorbar.set_label("Diferencia relativa hábil - domingo")
+    colorbar.ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=1))
+    ax.figure.tight_layout()
+
+    if output_dir is not None:
+        save_report_figure(ax.figure, output_dir, "eda_weekday_sunday_difference_heatmap.png")
     return ax
 
 
