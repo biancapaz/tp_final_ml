@@ -56,9 +56,12 @@ def load_x(processed_dir: Path) -> pd.DataFrame:
 
 def load_c(processed_dir: Path) -> pd.DataFrame:
     """
-    Load the full condition matrix (climate + socioeconomic + calendar).
+    Load the full condition matrix.
+
+    The source CSV may include socioeconomic columns because it is shared with
+    other experiments, but Architecture A uses only calendar + climate.
     Returns a DataFrame with columns: fecha, mes, dia_semana, es_feriado,
-    climate features per province, socioeconomic features per province.
+    climate features per province, and possibly ignored extra columns.
     """
     path = processed_dir / "c_condiciones_diarias.csv"
     df = pd.read_csv(path, parse_dates=["fecha"])
@@ -242,6 +245,11 @@ def get_c_column_groups(c: pd.DataFrame) -> dict[str, list[str]]:
     """
     Identify which columns of c belong to each group:
     calendar_binary, calendar_ordinal, climate, socioeconomic.
+
+    Architecture A is a system-level model: one row represents the full country
+    on one day. Socioeconomic indicators are static by province and are not part
+    of this condition vector; they are used only by Architecture B, where each
+    sample is a province-day.
     """
     all_cols = [col for col in c.columns if col != "fecha"]
 
@@ -254,12 +262,7 @@ def get_c_column_groups(c: pd.DataFrame) -> dict[str, list[str]]:
                 "temp_", "sensacion_", "humedad_", "viento_", "grado_"
             ])
         ],
-        "socioeconomic": [
-            col for col in all_cols
-            if any(col.startswith(p) for p in [
-                "poblacion_", "pbi_", "participacion_industrial_", "superficie_"
-            ])
-        ],
+        "socioeconomic": [],
     }
 
 
@@ -286,7 +289,7 @@ def transform_c(
     """
     Apply the pre-fitted scaler to c and return a numpy array.
     Binary calendar columns are concatenated without scaling.
-    Column order: binary | scaled(ordinal + climate + socioeconomic).
+    Column order: binary | scaled(ordinal + climate).
     The scaler must have been fitted on train only.
     """
     cols_to_scale = groups["calendar_ordinal"] + groups["climate"] + groups["socioeconomic"]

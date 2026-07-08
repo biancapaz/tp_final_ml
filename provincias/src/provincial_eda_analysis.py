@@ -62,6 +62,11 @@ REPORT_PALETTE = [
     "#CC79A7",
     "#56B4E9",
 ]
+REPORT_AXIS_LABEL_SIZE = 14
+REPORT_TICK_LABEL_SIZE = 12
+REPORT_LEGEND_SIZE = 12
+REPORT_LINEWIDTH = 2.4
+REPORT_MARKER_SIZE = 26
 
 
 def format_province_name(province: str) -> str:
@@ -348,7 +353,7 @@ def plot_report_daily_energy_boxplot_log(
 ) -> Axes:
     """Plot a horizontal log-scale daily energy boxplot by province."""
     if ax is None:
-        _, ax = plt.subplots(figsize=(9.5, 7.2))
+        _, ax = plt.subplots(figsize=(7.0, 6.3))
 
     daily = hourly_demand.groupby("fecha")[PROVINCE_ORDER].sum(min_count=1) / 1000
     order = daily.median().sort_values(ascending=False).index.tolist()
@@ -364,11 +369,11 @@ def plot_report_daily_energy_boxplot_log(
         tick_labels=labels,
         showfliers=False,
         patch_artist=True,
-        widths=0.58,
-        boxprops={"facecolor": "#D8E4EF", "edgecolor": "#355C7D", "linewidth": 1.0},
-        medianprops={"color": "#1D3557", "linewidth": 1.4},
-        whiskerprops={"color": "#516A7D", "linewidth": 0.9},
-        capprops={"color": "#516A7D", "linewidth": 0.9},
+        widths=0.62,
+        boxprops={"facecolor": "#D8E4EF", "edgecolor": "#355C7D", "linewidth": 1.3},
+        medianprops={"color": "#1D3557", "linewidth": 1.8},
+        whiskerprops={"color": "#516A7D", "linewidth": 1.2},
+        capprops={"color": "#516A7D", "linewidth": 1.2},
     )
     ax.set_xscale("log")
     tick_candidates = np.array([1, 2, 3, 5, 10, 20, 30, 50, 100, 200, 300])
@@ -376,10 +381,11 @@ def plot_report_daily_energy_boxplot_log(
     ticks = tick_candidates[(tick_candidates >= x_min) & (tick_candidates <= x_max)]
     ax.set_xticks(ticks)
     ax.set_xticklabels([f"{tick:g}" for tick in ticks])
-    ax.set_xlabel("Energía diaria (GWh, escala log)")
-    ax.set_ylabel("Provincia")
+    ax.set_xlabel("Energía diaria (GWh, escala log)", fontsize=REPORT_AXIS_LABEL_SIZE)
+    ax.set_ylabel("Provincia", fontsize=REPORT_AXIS_LABEL_SIZE)
     ax.invert_yaxis()
-    ax.tick_params(axis="y", labelsize=9)
+    ax.tick_params(axis="x", labelsize=REPORT_TICK_LABEL_SIZE)
+    ax.tick_params(axis="y", labelsize=REPORT_TICK_LABEL_SIZE)
     _style_report_axis(ax, grid_axis="x")
     ax.figure.tight_layout()
 
@@ -389,6 +395,7 @@ def plot_report_daily_energy_boxplot_log(
             output_dir,
             "eda_daily_energy_boxplot_by_province_log_horizontal.png",
         )
+        save_report_figure(ax.figure, output_dir, "figura1.png")
     return ax
 
 
@@ -402,7 +409,7 @@ def plot_report_normalized_hourly_profiles(
     if provinces is None:
         provinces = ["buenos_aires", "cordoba", "santa_fe", "formosa", "neuquen", "santa_cruz"]
     if ax is None:
-        _, ax = plt.subplots(figsize=(8.8, 4.8))
+        _, ax = plt.subplots(figsize=(6.5, 4.2))
 
     profiles = get_normalized_hourly_profile(hourly_demand, provinces)
     for province, color in zip(provinces, REPORT_PALETTE):
@@ -410,18 +417,31 @@ def plot_report_normalized_hourly_profiles(
             HOURS,
             profiles[province],
             color=color,
-            linewidth=2.1,
+            linewidth=REPORT_LINEWIDTH,
             label=format_province_name(province),
         )
 
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Demanda horaria / media diaria provincial")
+    ax.set_xlabel("Hora del día", fontsize=REPORT_AXIS_LABEL_SIZE)
+    ax.set_ylabel(
+        "Demanda horaria normalizada\n(media provincial = 1)",
+        fontsize=REPORT_AXIS_LABEL_SIZE,
+    )
     ax.set_xlim(1, 24)
-    ax.set_xticks(HOURS)
+    ax.set_xticks([1, 4, 8, 12, 16, 20, 24])
     ax.set_ylim(0.68, 1.32)
-    ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), frameon=False)
+    ax.tick_params(axis="both", labelsize=REPORT_TICK_LABEL_SIZE)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.24),
+        ncol=2,
+        frameon=False,
+        fontsize=REPORT_LEGEND_SIZE,
+        handlelength=2.2,
+        columnspacing=1.3,
+    )
     _style_report_axis(ax, grid_axis="both")
     ax.figure.tight_layout()
+    ax.figure.subplots_adjust(bottom=0.29)
 
     if output_dir is not None:
         save_report_figure(
@@ -429,6 +449,7 @@ def plot_report_normalized_hourly_profiles(
             output_dir,
             "eda_normalized_hourly_profiles_selected_provinces.png",
         )
+        save_report_figure(ax.figure, output_dir, "figura2.png")
     return ax
 
 
@@ -486,6 +507,7 @@ def _add_binned_mean_line(
         binned["energia_diaria_normalizada"],
         color=color,
         linewidth=2.5,
+        zorder=4,
     )
 
 
@@ -500,7 +522,7 @@ def plot_report_temperature_demand_scatter(
     if provinces is None:
         provinces = ["formosa", "buenos_aires", "neuquen"]
     if ax is None:
-        _, ax = plt.subplots(figsize=(8.4, 5.2))
+        _, ax = plt.subplots(figsize=(6.5, 4.2))
 
     merged = _compute_temperature_demand_table(hourly_demand, climate_daily, provinces)
     colors = REPORT_PALETTE[: len(provinces)]
@@ -510,10 +532,11 @@ def plot_report_temperature_demand_scatter(
         ax.scatter(
             data["temp_media"],
             data["energia_diaria_normalizada"],
-            s=14,
-            alpha=0.18,
+            s=REPORT_MARKER_SIZE,
+            alpha=0.23,
             color=color,
             edgecolors="none",
+            zorder=2,
         )
         _add_binned_mean_line(ax, data, color=color)
         legend_handles.append(
@@ -521,11 +544,25 @@ def plot_report_temperature_demand_scatter(
         )
 
     ax.axhline(1, color="#5F6F7E", linewidth=0.9, linestyle="--", alpha=0.65)
-    ax.set_xlabel("Temperatura media diaria (°C)")
-    ax.set_ylabel("Energía diaria / media provincial")
-    ax.legend(handles=legend_handles, frameon=False)
+    ax.set_xlabel("Temperatura media diaria (°C)", fontsize=REPORT_AXIS_LABEL_SIZE)
+    ax.set_ylabel(
+        "Energía diaria normalizada\n(media provincial = 1)",
+        fontsize=REPORT_AXIS_LABEL_SIZE,
+    )
+    ax.tick_params(axis="both", labelsize=REPORT_TICK_LABEL_SIZE)
+    ax.legend(
+        handles=legend_handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.24),
+        ncol=3,
+        frameon=False,
+        fontsize=REPORT_LEGEND_SIZE,
+        handlelength=2.4,
+        columnspacing=1.2,
+    )
     _style_report_axis(ax, grid_axis="both")
     ax.figure.tight_layout()
+    ax.figure.subplots_adjust(bottom=0.29)
 
     if output_dir is not None:
         save_report_figure(
@@ -533,6 +570,7 @@ def plot_report_temperature_demand_scatter(
             output_dir,
             "eda_temperature_demand_scatter_selected_provinces.png",
         )
+        save_report_figure(ax.figure, output_dir, "figura3.png")
     return ax
 
 
@@ -618,6 +656,158 @@ def build_socioeconomic_demand_table(
     table = indicators.merge(mean_demand, on="provincia", how="left")
     table["consumo_mwh_por_habitante_dia"] = table["energia_media_diaria_mwh"] / table["poblacion"]
     return table
+
+
+def plot_report_pbg_per_capita_vs_consumption_per_capita(
+    hourly_demand: pd.DataFrame,
+    indicators: pd.DataFrame,
+    output_dir: Path | None = None,
+    ax: Axes | None = None,
+    annotate_provinces: list[str] | None = None,
+    log_x: bool = False,
+    log_y: bool = False,
+) -> Axes:
+    """Plot PBG per capita against average daily electricity consumption per capita."""
+    required_columns = {"provincia", "poblacion", "pbg_per_capita"}
+    missing_columns = required_columns.difference(indicators.columns)
+    if missing_columns:
+        missing = ", ".join(sorted(missing_columns))
+        raise ValueError(f"Faltan columnas requeridas en indicadores: {missing}")
+
+    if annotate_provinces is None:
+        annotate_provinces = [
+            "buenos_aires",
+            "cordoba",
+            "santa_fe",
+            "formosa",
+            "neuquen",
+            "chubut",
+        ]
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8.2, 5.4))
+
+    table = build_socioeconomic_demand_table(hourly_demand, indicators).copy()
+    table["consumo_diario_per_capita"] = (
+        table["energia_media_diaria_mwh"] / table["poblacion"]
+    )
+    table["consumo_diario_per_capita_kwh"] = table["consumo_diario_per_capita"] * 1000
+    province_rank = {province: rank for rank, province in enumerate(PROVINCE_ORDER)}
+    plot_data = table.loc[table["provincia"].isin(PROVINCE_ORDER)].copy()
+    plot_data["orden_provincia"] = plot_data["provincia"].map(province_rank)
+    plot_data = plot_data.sort_values("orden_provincia")
+
+    x_column = "pbg_per_capita"
+    y_column = "consumo_diario_per_capita_kwh"
+    clean = plot_data[[x_column, y_column, "provincia"]].dropna()
+    ax.scatter(
+        clean[x_column],
+        clean[y_column],
+        s=58,
+        color="#355C7D",
+        alpha=0.76,
+        edgecolors="white",
+        linewidths=0.6,
+        zorder=3,
+    )
+
+    if log_x:
+        ax.set_xscale("log")
+    if log_y:
+        ax.set_yscale("log")
+
+    x_label = "PBG per cápita" + (" (escala log)" if log_x else "")
+    y_label = "Consumo diario per cápita (kWh/hab/día)" + (
+        " (escala log)" if log_y else ""
+    )
+    ax.set_xlabel(x_label, fontsize=11)
+    ax.set_ylabel(y_label, fontsize=11)
+    ax.tick_params(axis="both", labelsize=10)
+
+    if not log_x:
+        x_range = clean[x_column].max() - clean[x_column].min()
+        ax.set_xlim(
+            clean[x_column].min() - 0.06 * x_range,
+            clean[x_column].max() + 0.08 * x_range,
+        )
+    if not log_y:
+        y_range = clean[y_column].max() - clean[y_column].min()
+        ax.set_ylim(
+            clean[y_column].min() - 0.08 * y_range,
+            clean[y_column].max() + 0.10 * y_range,
+        )
+
+    annotation_data = clean.set_index("provincia")
+    try:
+        from adjustText import adjust_text
+    except ImportError:
+        adjust_text = None
+
+    arrowprops = {
+        "arrowstyle": "-",
+        "color": "#6C757D",
+        "lw": 0.7,
+        "alpha": 0.75,
+        "shrinkA": 0,
+        "shrinkB": 4,
+    }
+    if adjust_text is not None:
+        texts = []
+        for province in annotate_provinces:
+            if province not in annotation_data.index:
+                continue
+            row = annotation_data.loc[province]
+            texts.append(
+                ax.text(
+                    row[x_column],
+                    row[y_column],
+                    format_province_name(province),
+                    fontsize=9.5,
+                    color="#263238",
+                )
+            )
+        adjust_text(
+            texts,
+            ax=ax,
+            arrowprops=arrowprops,
+            expand=(1.1, 1.25),
+            force_text=(0.3, 0.5),
+        )
+    else:
+        offsets = {
+            "buenos_aires": (16, -18),
+            "cordoba": (-46, -18),
+            "santa_fe": (-40, 15),
+            "formosa": (14, 10),
+            "neuquen": (-56, 10),
+            "chubut": (12, -4),
+        }
+        for province in annotate_provinces:
+            if province not in annotation_data.index:
+                continue
+            row = annotation_data.loc[province]
+            ax.annotate(
+                format_province_name(province),
+                xy=(row[x_column], row[y_column]),
+                xytext=offsets.get(province, (8, 8)),
+                textcoords="offset points",
+                fontsize=9.5,
+                color="#263238",
+                ha="left",
+                va="center",
+                arrowprops=arrowprops,
+                zorder=4,
+            )
+
+    _style_report_axis(ax, grid_axis="both")
+    ax.figure.tight_layout()
+
+    if output_dir is not None:
+        save_report_figure(
+            ax.figure,
+            output_dir,
+            "eda_pbg_per_capita_vs_consumption_per_capita.png",
+        )
+    return ax
 
 
 def summarize_socioeconomic_correlations(table: pd.DataFrame) -> pd.DataFrame:
