@@ -1,5 +1,10 @@
+from pathlib import Path
+
 import requests
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+INTERIM_DIR = PROJECT_ROOT / "data" / "interim"
 
 CIUDADES = {
     'buenos_aires': {'lat': -34.6037, 'lon': -58.3816, 'peso': 0.40},
@@ -60,5 +65,6 @@ clima_ef = df_clima.groupby(['fecha', 'hora']).apply(
 print(f'\nClima efectivo: {clima_ef.shape}')
 print(clima_ef.head())
 
-clima_ef.to_csv('clima_efectivo_horario.csv', index=False)
-print('✓ clima_efectivo_horario.csv guardado')
+INTERIM_DIR.mkdir(parents=True, exist_ok=True)
+clima_ef.to_csv(INTERIM_DIR / 'clima_efectivo_horario.csv', index=False)
+print('✓ data/interim/clima_efectivo_horario.csv guardado')

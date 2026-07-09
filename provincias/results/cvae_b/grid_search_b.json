@@ -1,0 +1,62 @@
+[
+  {
+    "label": "hidden=128 latent=8  beta=1.0  (baseline)",
+    "hidden_dims": [
+      128,
+      128
+    ],
+    "latent_dim": 8,
+    "beta": 1.0,
+    "free_bits": 0.0,
+    "mae_mwh": 44.4,
+    "coverage_pct": 11.3,
+    "sharpness_mwh": 16.5,
+    "diversity_ratio": 0.003,
+    "gap_ratio": 1.0
+  },
+  {
+    "label": "hidden=64  latent=8  beta=0.1  free_bits=0.5",
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "latent_dim": 8,
+    "beta": 0.1,
+    "free_bits": 0.5,
+    "mae_mwh": 68.8,
+    "coverage_pct": 74.9,
+    "sharpness_mwh": 232.2,
+    "diversity_ratio": 0.045,
+    "gap_ratio": 2.71
+  },
+  {
+    "label": "hidden=64  latent=4  beta=1.0  free_bits=0.5",
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "latent_dim": 4,
+    "beta": 1.0,
+    "free_bits": 0.5,
+    "mae_mwh": 59.5,
+    "coverage_pct": 67.7,
+    "sharpness_mwh": 165.7,
+    "diversity_ratio": 0.033,
+    "gap_ratio": 1.7
+  },
+  {
+    "label": "hidden=64  latent=4  beta=0.3  free_bits=1.0 (FINAL)",
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "latent_dim": 4,
+    "beta": 0.3,
+    "free_bits": 1.0,
+    "mae_mwh": 96.3,
+    "coverage_pct": 83.6,
+    "sharpness_mwh": 344.0,
+    "diversity_ratio": 0.066,
+    "gap_ratio": 4.14
+  }
+]

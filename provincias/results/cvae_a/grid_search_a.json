@@ -1,0 +1,72 @@
+[
+  {
+    "label": "hidden=256 beta=1.0 (baseline)",
+    "hidden_dims": [
+      256,
+      256
+    ],
+    "latent_dim": 16,
+    "beta": 1.0,
+    "free_bits": 0.0,
+    "mae_mwh": 48.7,
+    "coverage_pct": 14.3,
+    "sharpness_mwh": 22.9,
+    "diversity_ratio": 0.054
+  },
+  {
+    "label": "hidden=256 beta=0.1",
+    "hidden_dims": [
+      256,
+      256
+    ],
+    "latent_dim": 16,
+    "beta": 0.1,
+    "free_bits": 0.0,
+    "mae_mwh": 50.6,
+    "coverage_pct": 51.2,
+    "sharpness_mwh": 108.5,
+    "diversity_ratio": 0.256
+  },
+  {
+    "label": "hidden=256 beta=0.01 free_bits=2.0",
+    "hidden_dims": [
+      256,
+      256
+    ],
+    "latent_dim": 16,
+    "beta": 0.01,
+    "free_bits": 2.0,
+    "mae_mwh": 55.1,
+    "coverage_pct": 63.9,
+    "sharpness_mwh": 137.0,
+    "diversity_ratio": 0.322
+  },
+  {
+    "label": "hidden=64  beta=0.01 free_bits=2.0",
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "latent_dim": 16,
+    "beta": 0.01,
+    "free_bits": 2.0,
+    "mae_mwh": 54.4,
+    "coverage_pct": 71.5,
+    "sharpness_mwh": 151.5,
+    "diversity_ratio": 0.356
+  },
+  {
+    "label": "hidden=64  latent=32 (FINAL)",
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "latent_dim": 32,
+    "beta": 0.01,
+    "free_bits": 2.0,
+    "mae_mwh": 57.4,
+    "coverage_pct": 72.9,
+    "sharpness_mwh": 163.7,
+    "diversity_ratio": 0.385
+  }
+]

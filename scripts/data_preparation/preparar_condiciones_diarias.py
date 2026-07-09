@@ -3,6 +3,9 @@ from pathlib import Path
 import pandas as pd
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+INTERIM_DIR = PROJECT_ROOT / "data" / "interim"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 HEAT_THRESHOLD = 22.0
 COLD_THRESHOLD = 15.0
 
@@ -113,14 +116,17 @@ def build_conditions_dataset(
 
 
 def main() -> None:
-    """Create c_condiciones_diarias.csv from calendar and hourly weather data."""
+    """Create data/interim/c_condiciones_diarias.csv from calendar and weather data."""
     conditions = build_conditions_dataset(
-        calendar_path=Path("c_calendario.csv"),
-        weather_path=Path("clima_efectivo_horario.csv"),
-        x_profiles_path=Path("x_perfiles_diarios.csv"),
+        calendar_path=INTERIM_DIR / "c_calendario.csv",
+        weather_path=INTERIM_DIR / "clima_efectivo_horario.csv",
+        x_profiles_path=PROCESSED_DIR / "x_perfiles_diarios.csv",
     )
-    conditions.to_csv("c_condiciones_diarias.csv", index=False, float_format="%.6f")
-    print(f"Saved c_condiciones_diarias.csv with shape {conditions.shape}")
+    INTERIM_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = INTERIM_DIR / "c_condiciones_diarias.csv"
+    conditions.to_csv(output_path, index=False, float_format="%.6f")
+    print(f"Saved data/interim/c_condiciones_diarias.csv with shape {conditions.shape}")
+    print(f"Output path: {output_path}")
     print(f"Date range: {conditions['fecha'].min().date()} -> {conditions['fecha'].max().date()}")
     print(conditions.head().to_string(index=False))
 

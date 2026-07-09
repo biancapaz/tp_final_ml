@@ -5,11 +5,14 @@ import unicodedata
 
 
 DEMAND_COLUMNS = [f"demanda_{hour:02d}" for hour in range(1, 25)]
+RAW_DATA_DIR = Path("data/raw")
+INTERIM_DATA_DIR = Path("data/interim")
+PROCESSED_DATA_DIR = Path("data/processed")
 
 
 def load_daily_datasets(
-    x_path: Path = Path("x_perfiles_diarios.csv"),
-    c_path: Path = Path("c_condiciones_diarias.csv"),
+    x_path: Path = PROCESSED_DATA_DIR / "x_perfiles_diarios.csv",
+    c_path: Path = INTERIM_DATA_DIR / "c_condiciones_diarias.csv",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load the daily demand profiles and condition datasets."""
     x_profiles = pd.read_csv(x_path, parse_dates=["fecha"])
@@ -18,8 +21,8 @@ def load_daily_datasets(
 
 
 def load_hourly_datasets(
-    demand_path: Path = Path("dataset_base_horario.csv"),
-    weather_path: Path = Path("clima_efectivo_horario.csv"),
+    demand_path: Path = PROCESSED_DATA_DIR / "dataset_base_horario.csv",
+    weather_path: Path = INTERIM_DATA_DIR / "clima_efectivo_horario.csv",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load the hourly demand and weather datasets."""
     hourly_demand = pd.read_csv(demand_path, parse_dates=["fecha"])
@@ -72,7 +75,7 @@ def summarize_source_total_consistency(base_path: Path = Path(".")) -> pd.DataFr
     source_specs = [
         {
             "dataset": "dataset_2021_2023",
-            "path": base_path / "dataset_2021_2023.xlsx",
+            "path": base_path / RAW_DATA_DIR / "dataset_2021_2023.xlsx",
             "required_columns": ["AÑO", "MES", "DÍA", "TIPO DÍA", "HORA"],
             "metadata_columns": {"ano", "mes", "dia", "tipo_dia", "hora"},
             "excluded_columns": {
@@ -87,7 +90,7 @@ def summarize_source_total_consistency(base_path: Path = Path(".")) -> pd.DataFr
         },
         {
             "dataset": "dataset_2023_2026",
-            "path": base_path / "dataset_2023_2026.xlsx",
+            "path": base_path / RAW_DATA_DIR / "dataset_2023_2026.xlsx",
             "required_columns": [
                 "AÑO",
                 "MES",
@@ -274,12 +277,12 @@ def build_quality_summary(
 ) -> dict[str, object]:
     """Run the main dataset quality checks used in the EDA."""
     x_profiles, conditions = load_daily_datasets(
-        x_path=base_path / "x_perfiles_diarios.csv",
-        c_path=base_path / "c_condiciones_diarias.csv",
+        x_path=base_path / PROCESSED_DATA_DIR / "x_perfiles_diarios.csv",
+        c_path=base_path / INTERIM_DATA_DIR / "c_condiciones_diarias.csv",
     )
     hourly_demand, hourly_weather = load_hourly_datasets(
-        demand_path=base_path / "dataset_base_horario.csv",
-        weather_path=base_path / "clima_efectivo_horario.csv",
+        demand_path=base_path / PROCESSED_DATA_DIR / "dataset_base_horario.csv",
+        weather_path=base_path / INTERIM_DATA_DIR / "clima_efectivo_horario.csv",
     )
     demand_hours_per_day = count_hours_per_day(hourly_demand)
     weather_hours_per_day = count_hours_per_day(hourly_weather)

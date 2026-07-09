@@ -12,9 +12,12 @@ DAY_TYPE_ORDER = ["habil", "sabado", "domingo", "feriado"]
 
 def load_daily_model_data(base_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load daily demand profiles and daily condition variables."""
-    x_profiles = pd.read_csv(base_path / "x_perfiles_diarios.csv", parse_dates=["fecha"])
+    x_profiles = pd.read_csv(
+        base_path / "data" / "processed" / "x_perfiles_diarios.csv",
+        parse_dates=["fecha"],
+    )
     conditions = pd.read_csv(
-        base_path / "c_condiciones_diarias.csv",
+        base_path / "data" / "interim" / "c_condiciones_diarias.csv",
         parse_dates=["fecha"],
     )
     return x_profiles, conditions

@@ -1,0 +1,4 @@
+Tipo de día,n_días,n_valores,Coverage (%),Sharpness (MWh),MAE mediana (MWh)
+Hábil,393,207504,85.93,270.29,59.35
+Domingo,69,36432,88.77,268.3,72.64
+Feriado,23,12144,87.75,270.22,70.18

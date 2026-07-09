@@ -1,11 +1,18 @@
+from pathlib import Path
 import unicodedata
+
 import pandas as pd
 
 # ─────────────────────────────────────────────
 # CONFIGURACIÓN — ajustá los nombres de archivo
 # ─────────────────────────────────────────────
-ARCHIVO_1 = "dataset_2021_2023.xlsx"   # columnas por región 2021-2023
-ARCHIVO_2 = "dataset_2023_2026.xlsx"   # columnas por provincia 2023-2026
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RAW_DIR = PROJECT_ROOT / "data" / "raw"
+INTERIM_DIR = PROJECT_ROOT / "data" / "interim"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+
+ARCHIVO_1 = RAW_DIR / "dataset_2021_2023.xlsx"   # columnas por región 2021-2023
+ARCHIVO_2 = RAW_DIR / "dataset_2023_2026.xlsx"   # columnas por provincia 2023-2026
 
 # ─────────────────────────────────────────────
 # Helper de normalización de columnas
@@ -187,12 +194,15 @@ print(calendario['dia_semana'].value_counts().sort_index())
 # 8. GUARDAR
 # ─────────────────────────────────────────────
 
-x.to_csv("x_perfiles_diarios.csv", index=False)
-calendario.to_csv("c_calendario.csv", index=False)
-df_base.to_csv("dataset_base_horario.csv", index=False)
+INTERIM_DIR.mkdir(parents=True, exist_ok=True)
+PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+x.to_csv(PROCESSED_DIR / "x_perfiles_diarios.csv", index=False)
+calendario.to_csv(INTERIM_DIR / "c_calendario.csv", index=False)
+df_base.to_csv(PROCESSED_DIR / "dataset_base_horario.csv", index=False)
 
 print("\n✓ Archivos guardados:")
-print("  - dataset_base_horario.csv  → base horaria completa")
-print("  - x_perfiles_diarios.csv    → perfiles de 24h (input del modelo)")
-print("  - c_calendario.csv          → variables de calendario (parte de c)")
-print("\nPróximo paso: agregar clima efectivo a c_calendario.csv")
+print("  - data/processed/dataset_base_horario.csv  → base horaria completa")
+print("  - data/processed/x_perfiles_diarios.csv    → perfiles de 24h (input del modelo)")
+print("  - data/interim/c_calendario.csv            → variables de calendario (parte de c)")
+print("\nPróximo paso: agregar clima efectivo a data/interim/c_calendario.csv")

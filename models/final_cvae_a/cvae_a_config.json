@@ -1,0 +1,33 @@
+{
+  "architecture": "A",
+  "best_val_loss": 0.15404967218637466,
+  "beta": 0.01,
+  "c_dim": 267,
+  "c_scaler_file": "c_scaler_a.pkl",
+  "checkpoint_file": "cvae_a_final.pt",
+  "free_bits": 2.0,
+  "hidden_dims": [
+    64,
+    64
+  ],
+  "latent_dim": 32,
+  "metadata_file": "cvae_a_metadata.json",
+  "model_name": "CVAE-A",
+  "n_samples_default": 500,
+  "seed_default": 42,
+  "temperature": 2.0,
+  "training_config": {
+    "batch_size": 256,
+    "beta": 0.01,
+    "device": "cpu",
+    "free_bits": 2.0,
+    "lr": 0.001,
+    "max_epochs": 300,
+    "patience": 30,
+    "seed": 42,
+    "warmup_epochs": 50
+  },
+  "warmup_epochs": 50,
+  "x_dim": 528,
+  "x_scaler_file": "x_scaler_a.pkl"
+}
