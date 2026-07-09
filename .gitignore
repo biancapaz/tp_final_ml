@@ -1,4 +1,7 @@
-/notes
 __pycache__/
 *.pyc
 .venv/
+.matplotlib_cache/
+.ipynb_checkpoints/
+.DS_Store
+predictions/
